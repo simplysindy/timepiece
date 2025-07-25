@@ -1,0 +1,38 @@
+pipeline:
+  run_discovery: true
+  run_scraping: true
+  run_validation: true
+discovery:
+  target_count_per_brand: 20
+  delay_range:
+  - 3
+  - 8
+  headless: true
+  output_file: watch_targets_100.json
+scraping:
+  delay_range:
+  - 10
+  - 20
+  max_retries: 3
+  brand_delay: 60
+  output_dir: data/watches
+  headless: true
+validation:
+  data_dir: data/watches
+  min_rows: 100
+  move_invalid: false
+  log_dir: logs
+brands:
+  Patek Philippe: https://watchcharts.com/watches/brand/patek+philippe
+  Rolex: https://watchcharts.com/watches/brand/rolex
+  Audemars Piguet: https://watchcharts.com/watches/brand/audemars+piguet
+  Vacheron Constantin: https://watchcharts.com/watches/brand/vacheron+constantin
+  Omega: https://watchcharts.com/watches/brand/omega
+  Tudor: https://watchcharts.com/watches/brand/tudor
+  Hublot: https://watchcharts.com/watches/brand/hublot
+  Tissot: https://watchcharts.com/watches/brand/tissot
+  Longines: https://watchcharts.com/watches/brand/longines
+  Seiko: https://watchcharts.com/watches/brand/seiko
+logging:
+  level: INFO
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'

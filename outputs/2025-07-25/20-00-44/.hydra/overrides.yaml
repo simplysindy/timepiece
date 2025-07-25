@@ -1,0 +1,4 @@
+- discovery.headless=false
+- scraping.headless=false
+- pipeline.run_scraping=false
+- pipeline.run_validation=false

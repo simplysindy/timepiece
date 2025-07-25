@@ -10,7 +10,7 @@ pipeline:
 
 # Discovery settings
 discovery:
-  target_count_per_brand: 10
+  target_count_per_brand: 20
   delay_range: [3, 8]
   headless: true
   output_file: "watch_targets_100.json"
