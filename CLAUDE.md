@@ -85,12 +85,12 @@ This is a **luxury watch price data scraping system** that collects historical p
 
 ### Data Flow
 ```
-Brand URLs → Discovery → watch_targets_100.json → Scraping → data/watches/*.csv → Validation → logs/
+Brand URLs → Discovery → data/targets/watch_targets.json → Scraping → data/watches/*.csv → Validation → logs/
 ```
 
 ### Output Formats
 - **CSV files**: `{Brand}-{Model}-{WatchID}.csv` (individual watch price data)
-- **JSON targets**: `watch_targets_100.json` (discovered watch URLs)
+- **JSON targets**: `data/targets/watch_targets.json` (discovered watch URLs)
 - **Validation logs**: `logs/csv_validation_YYYYMMDD_HHMMSS/`
 
 ## Important Implementation Notes

@@ -5,8 +5,8 @@ defaults:
 # Pipeline configuration
 pipeline:
   run_discovery: true
-  run_scraping: true
-  run_validation: true
+  run_scraping: false
+  run_validation: false
 
 # Discovery settings
 discovery:
@@ -30,18 +30,9 @@ validation:
   move_invalid: false
   log_dir: "logs"
 
-# Brand URLs for discovery
+# Brand URLs for discovery - Rolex only
 brands:
-  "Patek Philippe": "https://watchcharts.com/watches/brand/patek+philippe"
   "Rolex": "https://watchcharts.com/watches/brand/rolex"
-  "Audemars Piguet": "https://watchcharts.com/watches/brand/audemars+piguet"
-  "Vacheron Constantin": "https://watchcharts.com/watches/brand/vacheron+constantin"
-  "Omega": "https://watchcharts.com/watches/brand/omega"
-  "Tudor": "https://watchcharts.com/watches/brand/tudor"
-  "Hublot": "https://watchcharts.com/watches/brand/hublot"
-  "Tissot": "https://watchcharts.com/watches/brand/tissot"
-  "Longines": "https://watchcharts.com/watches/brand/longines"
-  "Seiko": "https://watchcharts.com/watches/brand/seiko"
 
 # Logging configuration
 logging:
