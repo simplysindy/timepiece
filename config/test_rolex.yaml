@@ -4,8 +4,8 @@ defaults:
 
 # Pipeline configuration
 pipeline:
-  run_discovery: true
-  run_scraping: false
+  run_discovery: false
+  run_scraping: true
   run_validation: false
 
 # Discovery settings
@@ -13,7 +13,7 @@ discovery:
   target_count_per_brand: 20
   delay_range: [3, 8]
   headless: false  # Changed to false to bypass Cloudflare
-  output_file: "data/targets/watch_targets.jsonl"
+  output_file: "data/targets/Rolex.jsonl"
 
 # Scraping settings
 scraping:
