@@ -291,7 +291,7 @@ def simulate_human_behavior(driver: webdriver.Chrome) -> None:
         # Perform the actions
         try:
             actions.perform()
-        except:
+        except Exception:
             pass  # Ignore errors in mouse simulation
             
         # Random scroll
@@ -387,7 +387,7 @@ def check_cloudflare_challenge(driver: webdriver.Chrome) -> bool:
             if active_cf_elements:
                 logger.warning("Active Cloudflare challenge detected: challenge elements found")
                 return True
-        except:
+        except Exception:
             pass
 
         return False
