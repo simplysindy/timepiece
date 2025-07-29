@@ -1,0 +1,61 @@
+# Data Preparation Pipeline Configuration
+
+# Data paths
+data:
+  input_dir: "data/final"  # Directory containing scraped CSV files
+  output_dir: "data/processed"  # Directory for processed output
+  max_files: null  # Maximum files to process (null = unlimited)
+
+# Data processing parameters
+processing:
+  frequency: "D"  # Daily frequency
+  interpolation_method: "backfill"  # backfill, forward, linear, spline
+  outlier_method: "iqr"  # iqr, zscore, isolation_forest
+  outlier_threshold: 3.0
+  min_data_points: 30  # Minimum points required per watch
+
+# Feature engineering parameters
+features:
+  lag_periods: [1, 2, 3, 7, 14]
+  rolling_windows: [3, 7, 14, 30]
+  include_temporal: true
+  include_momentum: true
+  include_volatility: true
+  include_technical: true
+  target_shift: -1  # Days to shift for target variable
+
+# Watch-specific configuration
+watch:
+  price_column: "price(SGD)"
+  date_column: "date"
+  
+  # Luxury tier definitions
+  luxury_tiers:
+    entry_luxury:
+      min_price: 0
+      max_price: 5000
+      volatility_factor: 1.5
+    mid_luxury:
+      min_price: 5000
+      max_price: 20000
+      volatility_factor: 1.2
+    high_luxury:
+      min_price: 20000
+      max_price: 100000
+      volatility_factor: 1.0
+    ultra_luxury:
+      min_price: 100000
+      max_price: .inf
+      volatility_factor: 0.8
+  
+  # Brand tier classifications
+  brand_tiers:
+    ultra_luxury: ["patek_philippe", "audemars_piguet", "vacheron_constantin"]
+    high_luxury: ["rolex", "omega", "cartier"]
+    mid_luxury: ["tudor", "longines", "tissot", "seiko", "hublot"]
+
+# Output settings
+output:
+  save_individual_files: false
+  save_combined_file: true
+  include_metadata: true
