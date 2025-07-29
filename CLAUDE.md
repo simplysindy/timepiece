@@ -9,8 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run complete scraping pipeline (main entry point)
 python -m src.scraping.scraping
 
+# Run data preparation pipeline (simplified watch-only version)
+python -m src.data_prep.data_prep
+
 # Install required dependencies
-pip install hydra-core selenium pandas beautifulsoup4 webdriver-manager
+pip install hydra-core selenium pandas beautifulsoup4 webdriver-manager scipy scikit-learn
 
 # Run specific pipeline phases
 python -m src.scraping.scraping pipeline.run_discovery=false pipeline.run_validation=false  # scraping only
@@ -25,6 +28,11 @@ python -m src.scraping.scraping scraping.delay_range=[5,15] validation.min_rows=
 
 # Run in visible browser mode (for debugging)
 python -m src.scraping.scraping scraping.headless=false discovery.headless=false
+
+# Customize data preparation pipeline
+python -m src.data_prep.data_prep data.max_files=10
+python -m src.data_prep.data_prep processing.interpolation_method=linear processing.outlier_method=zscore
+python -m src.data_prep.data_prep features.include_technical=false features.lag_periods=[1,3,7]
 ```
 
 ### Linting and Testing
@@ -85,13 +93,57 @@ This is a **luxury watch price data scraping system** that collects historical p
 
 ### Data Flow
 ```
-Brand URLs → Discovery → data/targets/watch_targets.json → Scraping → data/watches/*.csv → Validation → logs/
+Brand URLs → Discovery → data/targets/watch_targets.json → Scraping → data/final/*.csv → Data Prep → data/processed/*.csv
 ```
 
 ### Output Formats
 - **CSV files**: `{Brand}-{Model}-{WatchID}.csv` (individual watch price data)
 - **JSON targets**: `data/targets/watch_targets.json` (discovered watch URLs)
 - **Validation logs**: `logs/csv_validation_YYYYMMDD_HHMMSS/`
+- **Processed data**: `data/processed/watch_data_processed.csv` (ML-ready dataset)
+
+## Data Preparation Pipeline
+
+### Simplified Architecture (New)
+The data preparation pipeline has been refactored into a simplified, watch-only focused system:
+
+```
+src/
+├── data_prep/
+│   ├── __init__.py
+│   ├── data_prep.py    # Main Hydra entry point
+│   ├── process.py      # Consolidated processing logic
+│   └── config.py       # Hydra configuration schemas
+├── utils/
+│   ├── __init__.py
+│   └── io.py           # Simple I/O utilities
+conf/
+└── data_prep.yaml      # Hydra configuration
+```
+
+**Key Improvements:**
+- **Simplified Structure**: Consolidated from 2,500+ lines across multiple files to ~600 lines in 2 main files
+- **Hydra Integration**: Full configuration management with CLI overrides
+- **Watch-Only Focus**: Removed multi-asset complexity, optimized for luxury watch data
+- **All Features Preserved**: Maintains all 80+ features including watch-specific luxury market indicators
+
+**Data Preparation Components:**
+
+**Main Entry Point** (`src/data_prep/data_prep.py`)
+- Hydra-based configuration management
+- Single command execution: `python -m src.data_prep.data_prep`
+- Comprehensive logging and progress reporting
+
+**WatchDataProcessor** (`src/data_prep/process.py`)
+- All-in-one data processing: loading, cleaning, feature engineering
+- Watch-specific validation and luxury tier classification
+- Comprehensive feature engineering (80+ features)
+- Output generation: combined dataset + metadata summary
+
+**Configuration Schema** (`src/data_prep/config.py`)
+- Type-safe configuration using dataclasses
+- Hydra integration for CLI overrides
+- Watch-specific luxury tier and brand tier definitions
 
 ## Important Implementation Notes
 
