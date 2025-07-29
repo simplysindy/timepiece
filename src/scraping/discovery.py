@@ -3,7 +3,6 @@ Watch URL discovery from WatchCharts brand pages.
 Consolidated from watch_urls.py with configuration support.
 """
 
-import json
 import logging
 import math
 import os
@@ -12,6 +11,7 @@ from typing import Dict, List
 from bs4 import BeautifulSoup
 from selenium import webdriver
 
+from ..utils.io import ensure_output_directory, write_jsonl_file
 from .core.base_scraper import WatchScraper
 from .core.browser import BrowserManager
 
@@ -409,29 +409,20 @@ class WatchDiscovery(WatchScraper):
         if filename.endswith(".json"):
             filename = filename.replace(".json", ".jsonl")
 
-        with open(filename, "w", encoding="utf-8") as f:
-            for watch in watches:
-                json.dump(watch, f, ensure_ascii=False)
-                f.write("\n")
-
+        write_jsonl_file(watches, filename)
         logger.info(f"✅ Watch targets saved to {filename}")
 
     def save_brand_watches(self, brand: str, watches: List[Dict]) -> None:
         """Save discovered watches for a specific brand to a JSON file."""
         # Ensure targets directory exists
-        targets_dir = "data/targets"
-        os.makedirs(targets_dir, exist_ok=True)
+        targets_dir = ensure_output_directory("data", "targets")
 
         # Create brand-specific filename with .jsonl extension
-        brand_filename = os.path.join(targets_dir, f"{brand.replace(' ', '_')}.jsonl")
+        brand_filename = targets_dir / f"{brand.replace(' ', '_')}.jsonl"
 
         logger.info(f"💾 Saving {len(watches)} watches for {brand} to {brand_filename}")
 
-        with open(brand_filename, "w", encoding="utf-8") as f:
-            for watch in watches:
-                json.dump(watch, f, ensure_ascii=False)
-                f.write("\n")
-
+        write_jsonl_file(watches, brand_filename)
         logger.info(f"✅ {brand} watches saved to {brand_filename}")
 
     def run_discovery(self) -> List[Dict]:

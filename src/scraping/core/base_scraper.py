@@ -24,6 +24,7 @@ from .browser import (
     check_cloudflare_challenge,
     check_page_loaded_successfully,
 )
+from ...utils.io import load_existing_csv_data, safe_write_csv_with_backup, make_filename_safe
 
 logger = logging.getLogger(__name__)
 
@@ -278,12 +279,7 @@ class WatchScraper:
 
     def make_filename_safe(self, text: str) -> str:
         """Convert text to filesystem-safe filename."""
-        return (
-            text.replace(" ", "_")
-            .replace("/", "-")
-            .replace("\\\\", "-")
-            .replace(":", "-")
-        )
+        return make_filename_safe(text)
 
     def ensure_absolute_url(self, url: str, add_overview: bool = True) -> str:
         """Ensure URL is absolute and optionally add /overview suffix."""
@@ -347,16 +343,7 @@ class WatchScraper:
 
     def load_existing_data(self, output_file: str) -> Optional[pd.DataFrame]:
         """Load existing CSV data and return DataFrame with latest date info."""
-        try:
-            if os.path.exists(output_file):
-                df = pd.read_csv(output_file)
-                if len(df) > 0 and "date" in df.columns:
-                    # Convert date column to datetime for proper comparison
-                    df["date"] = pd.to_datetime(df["date"])
-                    return df
-        except Exception as e:
-            logger.warning(f"Error loading existing data from {output_file}: {e}")
-        return None
+        return load_existing_csv_data(output_file)
 
     def merge_with_existing_data(
         self, new_df: pd.DataFrame, existing_df: pd.DataFrame
@@ -448,7 +435,9 @@ class WatchScraper:
                     )
 
                 # Save merged data
-                final_df.to_csv(output_file, index=False)
+                if not safe_write_csv_with_backup(final_df, output_file, index=False):
+                    logger.error(f"Failed to save data to {output_file}")
+                    return False
 
                 if existing_data is not None:
                     new_points = len(final_df) - len(existing_data)

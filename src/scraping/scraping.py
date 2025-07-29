@@ -3,7 +3,6 @@ Main entry point for watch scraping pipeline.
 Integrates discovery, scraping, and validation with Hydra configuration management.
 """
 
-import json
 import logging
 import os
 from typing import Dict, List
@@ -11,6 +10,7 @@ from typing import Dict, List
 import hydra
 from omegaconf import DictConfig
 
+from ..utils.io import read_mixed_json_file
 from .core.base_scraper import WatchScraper, WatchTarget
 from .discovery import WatchDiscovery
 from .validation import WatchDataValidator
@@ -36,20 +36,7 @@ def load_or_discover_targets(config: DictConfig) -> List[WatchTarget]:
 
     if os.path.exists(output_file):
         logger.info(f"Loading existing targets from {output_file}")
-        targets_data = []
-        
-        # Check if file is JSONL format or regular JSON
-        if output_file.endswith('.jsonl'):
-            # Load JSONL format (one JSON object per line)
-            with open(output_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        targets_data.append(json.loads(line))
-        else:
-            # Load regular JSON format
-            with open(output_file, "r", encoding="utf-8") as f:
-                targets_data = json.load(f)
+        targets_data = read_mixed_json_file(output_file)
 
         # Convert to WatchTarget objects
         targets = []
