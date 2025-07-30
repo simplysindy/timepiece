@@ -581,3 +581,110 @@ def ensure_output_directory(base_dir: str, *subdirs: str) -> Path:
     logger.debug(f"Ensured directory exists: {path}")
     
     return path
+
+
+def create_individual_output_structure(base_dir: Union[str, Path], processed_subdir: str = "processed", summary_subdir: str = "summary") -> Dict[str, Path]:
+    """Create output directory structure for individual watch processing.
+    
+    Args:
+        base_dir: Base output directory
+        processed_subdir: Subdirectory name for processed watch files
+        summary_subdir: Subdirectory name for summary files
+        
+    Returns:
+        Dict with paths to created directories
+    """
+    base_path = Path(base_dir)
+    
+    # Create main directories
+    processed_dir = base_path / processed_subdir
+    summary_dir = base_path / summary_subdir
+    
+    # Ensure directories exist
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    
+    logger.info(f"Created output structure:")
+    logger.info(f"  Processed: {processed_dir}")
+    logger.info(f"  Summary: {summary_dir}")
+    
+    return {
+        "base": base_path,
+        "processed": processed_dir,
+        "summary": summary_dir
+    }
+
+
+def save_individual_watch_file(df: pd.DataFrame, watch_id: str, output_dir: Union[str, Path], filename_pattern: str = "{watch_id}.csv") -> bool:
+    """Save individual watch data to its own file.
+    
+    Args:
+        df: DataFrame with processed watch data
+        watch_id: Unique watch identifier
+        output_dir: Directory to save the file
+        filename_pattern: Pattern for filename (should contain {watch_id})
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        output_path = Path(output_dir)
+        filename = filename_pattern.format(watch_id=watch_id)
+        file_path = output_path / filename
+        
+        # Ensure output directory exists
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Save with backup functionality
+        success = safe_write_csv_with_backup(df, file_path, index=False)
+        
+        if success:
+            logger.debug(f"Saved individual watch file: {file_path}")
+            return True
+        else:
+            logger.error(f"Failed to save individual watch file: {file_path}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error saving individual watch file for {watch_id}: {str(e)}")
+        return False
+
+
+def save_watch_summary(summaries: List[Dict], output_dir: Union[str, Path], filename: str = "watch_metadata.csv") -> bool:
+    """Save watch summary metadata to CSV file.
+    
+    Args:
+        summaries: List of summary dictionaries for each watch
+        output_dir: Directory to save the summary file
+        filename: Name of the summary file
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        if not summaries:
+            logger.warning("No summaries to save")
+            return False
+            
+        output_path = Path(output_dir)
+        file_path = output_path / filename
+        
+        # Ensure output directory exists
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Convert summaries to DataFrame
+        summary_df = pd.DataFrame(summaries)
+        
+        # Save with backup functionality
+        success = safe_write_csv_with_backup(summary_df, file_path, index=False)
+        
+        if success:
+            logger.info(f"Saved watch summary: {file_path} ({len(summaries)} watches)")
+            return True
+        else:
+            logger.error(f"Failed to save watch summary: {file_path}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error saving watch summary: {str(e)}")
+        return False

@@ -133,7 +133,7 @@ def run_validation_pipeline(config: DictConfig) -> Dict:
     return results
 
 
-@hydra.main(version_base=None, config_path="../../config", config_name="scraping")
+@hydra.main(version_base=None, config_path="../../conf", config_name="scraping")
 def main(config: DictConfig) -> None:
     """
     Main function for watch scraping pipeline.
