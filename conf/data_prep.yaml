@@ -1,61 +1,118 @@
-# Data Preparation Pipeline Configuration
+# Configuration for watch data preparation pipeline
 
-# Data paths
+# Data paths configuration
 data:
-  input_dir: "data/final"  # Directory containing scraped CSV files
-  output_dir: "data/processed"  # Directory for processed output
-  max_files: null  # Maximum files to process (null = unlimited)
+  input_dir: data/final
+  output_dir: data/processed
+  max_files: null  # Process all files if null, or limit to specific number
+  file_pattern: "*.csv"  # File pattern to match watch files
 
-# Data processing parameters
+# Output structure configuration  
+output:
+  save_individual: true  # Save each watch separately
+  save_summary: true     # Generate summary metadata file
+  subdirs:
+    processed: ""         # No subdirectory - save directly in data/processed/
+    summary: summary      # Subdirectory for summary files
+  file_format: csv       # Output format (csv or parquet)
+  include_index: true    # Include date index in output files
+
+# Data processing configuration
 processing:
-  frequency: "D"  # Daily frequency
-  interpolation_method: "backfill"  # backfill, forward, linear, spline
-  outlier_method: "iqr"  # iqr, zscore, isolation_forest
-  outlier_threshold: 3.0
-  min_data_points: 30  # Minimum points required per watch
+  frequency: D                    # Resample frequency (D=daily, W=weekly)
+  min_data_points: 30            # Minimum data points required per watch
+  interpolation_method: linear    # Method: linear, cubic, forward, backward
+  fill_limit: 5                  # Maximum consecutive values to interpolate
+  
+  # Outlier detection
+  outlier_method: iqr            # Method: iqr, zscore, isolation_forest
+  outlier_threshold: 3.0         # Threshold for outlier detection
+  handle_outliers: interpolate   # How to handle: remove, interpolate, cap
+  
+  # Data quality
+  max_missing_percent: 20        # Maximum % of missing data allowed
+  remove_duplicates: true        # Remove duplicate timestamps
+  sort_index: true              # Ensure data is sorted by date
 
-# Feature engineering parameters
+# Feature engineering configuration
 features:
-  lag_periods: [1, 2, 3, 7, 14]
-  rolling_windows: [3, 7, 14, 30]
-  include_temporal: true
-  include_momentum: true
-  include_volatility: true
+  # Lag features
+  lag_periods: [1, 2, 3, 7, 14, 30]
+  
+  # Rolling window features
+  rolling_windows: [7, 14, 21, 30, 60, 90]
+  rolling_stats: [mean, std, min, max, median]
+  
+  # Technical indicators
   include_technical: true
-  target_shift: -1  # Days to shift for target variable
+  technical_indicators:
+    - sma        # Simple moving average
+    - ema        # Exponential moving average
+    - rsi        # Relative strength index
+    - bollinger  # Bollinger bands
+    
+  # Watch-specific features
+  include_watch_features: true
+  watch_features:
+    - luxury_tier
+    - seasonality
+    - price_stability
+    - brand_features
+    
+  # Time-based features
+  include_temporal: true
+  temporal_features:
+    - day_of_week
+    - month
+    - quarter
+    - is_weekend
+    - is_month_end
+  
+  # Target variable configuration
+  target_shift: -1  # Days to shift for target variable (negative = future)
 
 # Watch-specific configuration
 watch:
   price_column: "price(SGD)"
   date_column: "date"
   
-  # Luxury tier definitions
+  # Luxury tier thresholds (in SGD)
   luxury_tiers:
-    entry_luxury:
-      min_price: 0
-      max_price: 5000
-      volatility_factor: 1.5
-    mid_luxury:
-      min_price: 5000
-      max_price: 20000
-      volatility_factor: 1.2
-    high_luxury:
-      min_price: 20000
-      max_price: 100000
-      volatility_factor: 1.0
-    ultra_luxury:
-      min_price: 100000
-      max_price: .inf
-      volatility_factor: 0.8
+    entry: [0, 5000]
+    mid: [5000, 20000]
+    high: [20000, 100000]
+    ultra: [100000, null]
   
-  # Brand tier classifications
-  brand_tiers:
-    ultra_luxury: ["patek_philippe", "audemars_piguet", "vacheron_constantin"]
-    high_luxury: ["rolex", "omega", "cartier"]
-    mid_luxury: ["tudor", "longines", "tissot", "seiko", "hublot"]
+  # Brand categorization
+  premium_brands:
+    - rolex
+    - patek_philippe
+    - audemars_piguet
+    - omega
+    - cartier
 
-# Output settings
-output:
-  save_individual_files: false
-  save_combined_file: true
-  include_metadata: true
+# Processing behavior
+behavior:
+  continue_on_error: true      # Continue processing other watches if one fails
+  verbose: true                # Detailed logging
+  validate_output: true        # Validate processed data before saving
+  overwrite_existing: false    # Overwrite existing processed files
+  
+# Summary statistics to generate
+summary:
+  include_stats:
+    - total_records
+    - date_range
+    - missing_data_percent
+    - avg_price
+    - price_volatility
+    - price_trend
+    - data_quality_score
+    - features_count
+  
+  # Additional metadata
+  include_metadata:
+    - brand
+    - model
+    - luxury_tier
+    - processing_timestamp
