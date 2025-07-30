@@ -93,7 +93,7 @@ This is a **luxury watch price data scraping system** that collects historical p
 
 ### Data Flow
 ```
-Brand URLs → Discovery → data/targets/watch_targets.json → Scraping → data/final/*.csv → Data Prep → data/processed/*.csv
+Brand URLs → Discovery → data/targets/watch_targets.json → Scraping → data/watches/*.csv → Data Prep → data/processed/*.csv
 ```
 
 ### Output Formats
