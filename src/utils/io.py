@@ -615,7 +615,7 @@ def create_individual_output_structure(base_dir: Union[str, Path], processed_sub
     }
 
 
-def save_individual_watch_file(df: pd.DataFrame, watch_id: str, output_dir: Union[str, Path], filename_pattern: str = "{watch_id}.csv") -> bool:
+def save_individual_watch_file(df: pd.DataFrame, watch_id: str, output_dir: Union[str, Path], filename_pattern: str = "{watch_id}.csv", overwrite_existing: bool = True) -> bool:
     """Save individual watch data to its own file.
     
     Args:
@@ -635,6 +635,11 @@ def save_individual_watch_file(df: pd.DataFrame, watch_id: str, output_dir: Unio
         # Ensure output directory exists
         output_path.mkdir(parents=True, exist_ok=True)
         
+        # Check if file exists and overwrite setting
+        if file_path.exists() and not overwrite_existing:
+            logger.info(f"Skipping existing file (overwrite disabled): {file_path}")
+            return True
+        
         # Save with backup functionality
         success = safe_write_csv_with_backup(df, file_path, index=False)
         
@@ -650,7 +655,7 @@ def save_individual_watch_file(df: pd.DataFrame, watch_id: str, output_dir: Unio
         return False
 
 
-def save_watch_summary(summaries: List[Dict], output_dir: Union[str, Path], filename: str = "watch_metadata.csv") -> bool:
+def save_watch_summary(summaries: List[Dict], output_dir: Union[str, Path], filename: str = "watch_metadata.csv", overwrite_existing: bool = True) -> bool:
     """Save watch summary metadata to CSV file.
     
     Args:
@@ -674,6 +679,11 @@ def save_watch_summary(summaries: List[Dict], output_dir: Union[str, Path], file
         
         # Convert summaries to DataFrame
         summary_df = pd.DataFrame(summaries)
+        
+        # Check if file exists and overwrite setting
+        if file_path.exists() and not overwrite_existing:
+            logger.info(f"Skipping existing summary file (overwrite disabled): {file_path}")
+            return True
         
         # Save with backup functionality
         success = safe_write_csv_with_backup(summary_df, file_path, index=False)
