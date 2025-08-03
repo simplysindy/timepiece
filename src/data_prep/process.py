@@ -64,34 +64,49 @@ class WatchDataProcessor:
 
         for watch_id, raw_df in raw_data.items():
             try:
-                logger.info(f"Processing watch: {watch_id}")
+                if self.config.behavior.verbose:
+                    logger.info(f"Processing watch: {watch_id}")
                 
                 # Process single watch through complete pipeline
                 result = self.process_single_watch(watch_id, raw_df)
                 
                 if result["success"]:
+                    # Validate output if configured
+                    if self.config.behavior.validate_output:
+                        if result["processed_data"].empty:
+                            logger.warning(f"❌ Validation failed for {watch_id}: empty dataset")
+                            failed_count += 1
+                            continue
+                    
                     # Save individual processed watch file
                     save_success = save_individual_watch_file(
                         result["processed_data"],
                         watch_id,
                         output_dirs["processed"],
-                        "{watch_id}.csv"
+                        "{watch_id}.csv",
+                        overwrite_existing=self.config.behavior.overwrite_existing
                     )
                     
                     if save_success:
                         processed_count += 1
                         summaries.append(result["summary"])
-                        logger.info(f"✅ Successfully processed {watch_id}")
+                        if self.config.behavior.verbose:
+                            logger.info(f"✅ Successfully processed {watch_id}")
                     else:
                         failed_count += 1
-                        logger.warning(f"❌ Failed to save {watch_id}")
+                        if self.config.behavior.verbose:
+                            logger.warning(f"❌ Failed to save {watch_id}")
                 else:
                     failed_count += 1
-                    logger.warning(f"❌ Failed to process {watch_id}: {result.get('error', 'Unknown error')}")
+                    if self.config.behavior.verbose:
+                        logger.warning(f"❌ Failed to process {watch_id}: {result.get('error', 'Unknown error')}")
                     
             except Exception as e:
                 failed_count += 1
-                logger.error(f"❌ Error processing {watch_id}: {str(e)}")
+                if self.config.behavior.verbose:
+                    logger.error(f"❌ Error processing {watch_id}: {str(e)}")
+                if not self.config.behavior.continue_on_error:
+                    raise e
 
         # Step 3: Save summary metadata
         summary_saved = False
@@ -99,13 +114,15 @@ class WatchDataProcessor:
             summary_saved = save_watch_summary(
                 summaries,
                 output_dirs["summary"],
-                "watch_metadata.csv"
+                "watch_metadata.csv",
+                overwrite_existing=self.config.behavior.overwrite_existing
             )
 
-        logger.info(f"Individual processing complete:")
-        logger.info(f"  ✅ Processed: {processed_count}")
-        logger.info(f"  ❌ Failed: {failed_count}")
-        logger.info(f"  📊 Summary saved: {summary_saved}")
+        if self.config.behavior.verbose:
+            logger.info(f"Individual processing complete:")
+            logger.info(f"  ✅ Processed: {processed_count}")
+            logger.info(f"  ❌ Failed: {failed_count}")
+            logger.info(f"  📊 Summary saved: {summary_saved}")
 
         return {
             "success": True,
@@ -157,7 +174,14 @@ class WatchDataProcessor:
                     df[self.config.watch.date_column]
                 )
                 df.set_index(self.config.watch.date_column, inplace=True)
-                df.sort_index(inplace=True)
+                
+                # Remove duplicates if configured
+                if self.config.processing.remove_duplicates:
+                    df = df[~df.index.duplicated(keep='first')]
+                
+                # Sort index if configured
+                if self.config.processing.sort_index:
+                    df.sort_index(inplace=True)
 
                 # Basic validation
                 if len(df) < self.config.processing.min_data_points:
@@ -193,6 +217,12 @@ class WatchDataProcessor:
                 # Remove outliers
                 df_clean = self._remove_outliers(df_clean, price_col)
 
+                # Check missing data percentage before processing
+                missing_percent = (df_clean[price_col].isna().sum() / len(df_clean)) * 100
+                if missing_percent > self.config.processing.max_missing_percent:
+                    logger.warning(f"Too much missing data for {watch_name}: {missing_percent:.1f}%")
+                    continue
+                
                 # Handle missing values
                 df_clean = self._handle_missing_values(df_clean, price_col)
                 
@@ -250,15 +280,16 @@ class WatchDataProcessor:
         """Handle missing values using the configured method."""
 
         method = self.config.processing.interpolation_method
+        fill_limit = self.config.processing.fill_limit
 
         if method == "backfill":
-            df[price_col] = df[price_col].bfill()
+            df[price_col] = df[price_col].bfill(limit=fill_limit)
         elif method == "forward":
-            df[price_col] = df[price_col].ffill()
+            df[price_col] = df[price_col].ffill(limit=fill_limit)
         elif method == "linear":
-            df[price_col] = df[price_col].interpolate(method="linear")
+            df[price_col] = df[price_col].interpolate(method="linear", limit=fill_limit)
         elif method == "spline":
-            df[price_col] = df[price_col].interpolate(method="spline", order=2)
+            df[price_col] = df[price_col].interpolate(method="spline", order=2, limit=fill_limit)
 
         # Drop any remaining NaN values
         df.dropna(subset=[price_col], inplace=True)
@@ -361,14 +392,19 @@ class WatchDataProcessor:
     def _parse_watch_metadata(self, watch_name: str) -> Dict[str, str]:
         """Parse watch metadata from filename."""
 
-        # Try to parse Brand-Model-ID format
+        # Try to parse Brand-NumericID-ModelName format
         parts = watch_name.split("-")
         if len(parts) >= 3:
+            # Format: Audemars_Piguet-22095-Code_11_59_Automatic_White_Gold_15210bc
+            brand = parts[0].replace("_", " ")  # "Audemars Piguet"
+            numeric_id = parts[1]                # "22095"
+            model_name = "-".join(parts[2:]).replace("_", " ")  # "Code 11 59 Automatic White Gold 15210bc"
+            
             return {
-                "brand": parts[0].replace("_", " "),
-                "model": "-".join(parts[1:-1]).replace("_", " "),
-                "id": parts[-1],
-                "full_name": f"{parts[0]} {'-'.join(parts[1:-1])}",
+                "brand": brand,
+                "model": model_name,  # Descriptive model name
+                "id": numeric_id,     # Numeric ID for watch_id
+                "full_name": f"{brand} {model_name}",
             }
         elif len(parts) == 2:
             return {
@@ -450,29 +486,47 @@ class WatchDataProcessor:
         return df_features
 
     def _add_temporal_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add temporal features."""
+        """Add temporal features based on configuration."""
 
         df_temp = df.copy()
+        temporal_features = self.config.features.temporal_features
 
-        # Basic temporal
-        df_temp["day_of_week"] = df_temp.index.dayofweek
-        df_temp["day_of_month"] = df_temp.index.day
-        df_temp["month"] = df_temp.index.month
-        df_temp["quarter"] = df_temp.index.quarter
-        df_temp["year"] = df_temp.index.year
+        # Basic temporal features - only add if specified in config
+        if "day_of_week" in temporal_features:
+            df_temp["day_of_week"] = df_temp.index.dayofweek
+            # Cyclical encoding for day of week
+            df_temp["day_of_week_sin"] = np.sin(2 * np.pi * df_temp["day_of_week"] / 7)
+            df_temp["day_of_week_cos"] = np.cos(2 * np.pi * df_temp["day_of_week"] / 7)
+        
+        if "month" in temporal_features:
+            df_temp["month"] = df_temp.index.month
+            # Cyclical encoding for month
+            df_temp["month_sin"] = np.sin(2 * np.pi * df_temp["month"] / 12)
+            df_temp["month_cos"] = np.cos(2 * np.pi * df_temp["month"] / 12)
+        
+        if "quarter" in temporal_features:
+            df_temp["quarter"] = df_temp.index.quarter
+        
+        # Optional temporal features
+        if "day_of_month" in temporal_features:
+            df_temp["day_of_month"] = df_temp.index.day
+        if "year" in temporal_features:
+            df_temp["year"] = df_temp.index.year
 
-        # Cyclical encoding
-        df_temp["day_of_week_sin"] = np.sin(2 * np.pi * df_temp["day_of_week"] / 7)
-        df_temp["day_of_week_cos"] = np.cos(2 * np.pi * df_temp["day_of_week"] / 7)
-        df_temp["month_sin"] = np.sin(2 * np.pi * df_temp["month"] / 12)
-        df_temp["month_cos"] = np.cos(2 * np.pi * df_temp["month"] / 12)
-
-        # Boolean features
-        df_temp["is_weekend"] = df_temp["day_of_week"] >= 5
-        df_temp["is_month_start"] = df_temp.index.is_month_start
-        df_temp["is_month_end"] = df_temp.index.is_month_end
-        df_temp["is_quarter_start"] = df_temp.index.is_quarter_start
-        df_temp["is_quarter_end"] = df_temp.index.is_quarter_end
+        # Boolean features - only add if specified in config
+        if "is_weekend" in temporal_features:
+            if "day_of_week" not in df_temp.columns:
+                df_temp["day_of_week"] = df_temp.index.dayofweek
+            df_temp["is_weekend"] = df_temp["day_of_week"] >= 5
+        
+        if "is_month_start" in temporal_features:
+            df_temp["is_month_start"] = df_temp.index.is_month_start
+        if "is_month_end" in temporal_features:
+            df_temp["is_month_end"] = df_temp.index.is_month_end
+        if "is_quarter_start" in temporal_features:
+            df_temp["is_quarter_start"] = df_temp.index.is_quarter_start
+        if "is_quarter_end" in temporal_features:
+            df_temp["is_quarter_end"] = df_temp.index.is_quarter_end
 
         return df_temp
 
@@ -487,36 +541,44 @@ class WatchDataProcessor:
         return df_lag
 
     def _add_rolling_features(self, df: pd.DataFrame, price_col: str) -> pd.DataFrame:
-        """Add rolling window features."""
+        """Add rolling window features based on configuration."""
 
         df_roll = df.copy()
+        rolling_stats = self.config.features.rolling_stats
 
         for window in self.config.features.rolling_windows:
-            df_roll[f"rolling_mean_{window}"] = (
-                df_roll[price_col].rolling(window=window).mean()
-            )
-            df_roll[f"rolling_std_{window}"] = (
-                df_roll[price_col].rolling(window=window).std()
-            )
-            df_roll[f"rolling_min_{window}"] = (
-                df_roll[price_col].rolling(window=window).min()
-            )
-            df_roll[f"rolling_max_{window}"] = (
-                df_roll[price_col].rolling(window=window).max()
-            )
-            df_roll[f"rolling_median_{window}"] = (
-                df_roll[price_col].rolling(window=window).median()
-            )
+            # Only add the statistics specified in config
+            if "mean" in rolling_stats:
+                df_roll[f"rolling_mean_{window}"] = (
+                    df_roll[price_col].rolling(window=window).mean()
+                )
+            if "std" in rolling_stats:
+                df_roll[f"rolling_std_{window}"] = (
+                    df_roll[price_col].rolling(window=window).std()
+                )
+            if "min" in rolling_stats:
+                df_roll[f"rolling_min_{window}"] = (
+                    df_roll[price_col].rolling(window=window).min()
+                )
+            if "max" in rolling_stats:
+                df_roll[f"rolling_max_{window}"] = (
+                    df_roll[price_col].rolling(window=window).max()
+                )
+            if "median" in rolling_stats:
+                df_roll[f"rolling_median_{window}"] = (
+                    df_roll[price_col].rolling(window=window).median()
+                )
 
-            # Price position within rolling window
-            # Calculate denominator to handle division by zero
-            denominator = df_roll[f"rolling_max_{window}"] - df_roll[f"rolling_min_{window}"]
-            # When denominator is 0 (flat period), position = 0 (neutral position)
-            df_roll[f"price_position_{window}"] = np.where(
-                denominator == 0, 
-                0,  # Use 0 for flat periods instead of NaN
-                (df_roll[price_col] - df_roll[f"rolling_min_{window}"]) / denominator
-            )
+            # Price position within rolling window (only if min/max are available)
+            if "min" in rolling_stats and "max" in rolling_stats:
+                # Calculate denominator to handle division by zero
+                denominator = df_roll[f"rolling_max_{window}"] - df_roll[f"rolling_min_{window}"]
+                # When denominator is 0 (flat period), position = 0 (neutral position)
+                df_roll[f"price_position_{window}"] = np.where(
+                    denominator == 0, 
+                    0,  # Use 0 for flat periods instead of NaN
+                    (df_roll[price_col] - df_roll[f"rolling_min_{window}"]) / denominator
+                )
 
         return df_roll
 
@@ -526,7 +588,7 @@ class WatchDataProcessor:
         df_mom = df.copy()
 
         # Price changes
-        for period in [1, 3, 7, 14, 21, 30]:
+        for period in self.config.features.price_change_periods:
             df_mom[f"price_change_{period}"] = df_mom[price_col].pct_change(period)
             df_mom[f"price_change_abs_{period}"] = df_mom[price_col].diff(period)
 
@@ -562,100 +624,113 @@ class WatchDataProcessor:
     def _add_technical_indicators(
         self, df: pd.DataFrame, price_col: str
     ) -> pd.DataFrame:
-        """Add technical indicators."""
+        """Add technical indicators based on configuration."""
 
         df_tech = df.copy()
+        indicators = self.config.features.technical_indicators
 
-        # Simple Moving Averages
-        for window in [5, 10, 20, 50]:
-            df_tech[f"sma_{window}"] = df_tech[price_col].rolling(window=window).mean()
-            df_tech[f"price_over_sma_{window}"] = (
-                df_tech[price_col] / df_tech[f"sma_{window}"]
-            )
+        # Simple Moving Averages - only if 'sma' is in config
+        if 'sma' in indicators:
+            for window in [5, 10, 20, 50]:
+                df_tech[f"sma_{window}"] = df_tech[price_col].rolling(window=window).mean()
+                df_tech[f"price_over_sma_{window}"] = (
+                    df_tech[price_col] / df_tech[f"sma_{window}"]
+                )
 
-        # Exponential Moving Averages
-        for span in [5, 10, 20]:
-            df_tech[f"ema_{span}"] = df_tech[price_col].ewm(span=span).mean()
-            df_tech[f"price_over_ema_{span}"] = (
-                df_tech[price_col] / df_tech[f"ema_{span}"]
-            )
+        # Exponential Moving Averages - only if 'ema' is in config
+        if 'ema' in indicators:
+            for span in [5, 10, 20]:
+                df_tech[f"ema_{span}"] = df_tech[price_col].ewm(span=span).mean()
+                df_tech[f"price_over_ema_{span}"] = (
+                    df_tech[price_col] / df_tech[f"ema_{span}"]
+                )
 
-        # Bollinger Bands
-        for window in [10, 20]:
-            sma = df_tech[price_col].rolling(window=window).mean()
-            std = df_tech[price_col].rolling(window=window).std()
-            df_tech[f"bb_upper_{window}"] = sma + (2 * std)
-            df_tech[f"bb_lower_{window}"] = sma - (2 * std)
-            df_tech[f"bb_position_{window}"] = (
-                (df_tech[price_col] - df_tech[f"bb_lower_{window}"])
-                / (df_tech[f"bb_upper_{window}"] - df_tech[f"bb_lower_{window}"])
-            ).replace([np.inf, -np.inf], np.nan)
+        # Bollinger Bands - only if 'bollinger' is in config
+        if 'bollinger' in indicators:
+            for window in [10, 20]:
+                sma = df_tech[price_col].rolling(window=window).mean()
+                std = df_tech[price_col].rolling(window=window).std()
+                df_tech[f"bb_upper_{window}"] = sma + (2 * std)
+                df_tech[f"bb_lower_{window}"] = sma - (2 * std)
+                df_tech[f"bb_position_{window}"] = (
+                    (df_tech[price_col] - df_tech[f"bb_lower_{window}"])
+                    / (df_tech[f"bb_upper_{window}"] - df_tech[f"bb_lower_{window}"])
+                ).replace([np.inf, -np.inf], np.nan)
 
-        # RSI (Relative Strength Index)
-        delta = df_tech[price_col].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df_tech["rsi"] = 100 - (100 / (1 + rs))
+        # RSI (Relative Strength Index) - only if 'rsi' is in config
+        if 'rsi' in indicators:
+            delta = df_tech[price_col].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            df_tech["rsi"] = 100 - (100 / (1 + rs))
 
         return df_tech
 
     def _add_watch_specific_features(
         self, df: pd.DataFrame, price_col: str, watch_name: str
     ) -> pd.DataFrame:
-        """Add watch-specific luxury market features."""
+        """Add watch-specific luxury market features based on configuration."""
 
         df_watch = df.copy()
+        watch_features = self.config.features.watch_features
 
         # Parse watch metadata
         metadata = self._parse_watch_metadata(watch_name)
         brand = metadata["brand"].lower().replace(" ", "_")
         model = metadata["model"].lower()
 
-        # Luxury tier features
-        mean_price = df_watch[price_col].mean()
-        luxury_tier = self._classify_luxury_tier(mean_price)
+        # Luxury tier features - only if specified in config
+        if "luxury_tier" in watch_features:
+            mean_price = df_watch[price_col].mean()
+            luxury_tier = self._classify_luxury_tier(mean_price)
 
-        # Initialize tier indicators
-        for tier in self.config.watch.luxury_tiers.keys():
-            df_watch[f"tier_{tier}"] = 1 if tier == luxury_tier else 0
+            # Initialize tier indicators
+            for tier in self.config.watch.luxury_tiers.keys():
+                df_watch[f"tier_{tier}"] = 1 if tier == luxury_tier else 0
 
-        # Brand tier features - simplified to premium vs non-premium
-        df_watch["brand_tier_premium"] = int(
-            any(pb in brand.lower() for pb in [b.lower() for b in self.config.watch.premium_brands])
-        )
-        df_watch["brand_tier_non_premium"] = 1 - df_watch["brand_tier_premium"]
+        # Brand features - only if specified in config
+        if "brand_features" in watch_features:
+            # Brand tier features - simplified to premium vs non-premium
+            df_watch["brand_tier_premium"] = int(
+                any(pb in brand.lower() for pb in [b.lower() for b in self.config.watch.premium_brands])
+            )
+            df_watch["brand_tier_non_premium"] = 1 - df_watch["brand_tier_premium"]
+            
+            # Watch category features
+            sports_keywords = [
+                "speedmaster",
+                "submariner",
+                "daytona",
+                "gmt",
+                "diver",
+                "chrono",
+            ]
+            df_watch["is_sports_watch"] = int(any(kw in model for kw in sports_keywords))
 
-        # Watch seasonality features
-        df_watch["is_holiday_season"] = df_watch.index.month.isin([11, 12, 1])
-        df_watch["is_watch_fair_season"] = df_watch.index.month.isin([3, 4])
+            dress_keywords = ["calatrava", "master", "patrimony", "royal_oak", "nautilus"]
+            df_watch["is_dress_watch"] = int(any(kw in model for kw in dress_keywords))
 
-        # Luxury market volatility
-        returns = df_watch[price_col].pct_change()
-        for window in [3, 5, 10]:
-            df_watch[f"luxury_vol_{window}"] = returns.rolling(
-                window=window
-            ).std() * np.sqrt(252)
+        # Seasonality features - only if specified in config
+        if "seasonality" in watch_features:
+            df_watch["is_holiday_season"] = df_watch.index.month.isin([11, 12, 1])
+            df_watch["is_watch_fair_season"] = df_watch.index.month.isin([3, 4])
 
-        # Premium pricing indicators
-        rolling_30 = df_watch[price_col].rolling(window=30)
-        df_watch["price_premium_30d"] = (
-            (df_watch[price_col] - rolling_30.min()) / rolling_30.min()
-        ).replace([np.inf, -np.inf], np.nan)
+        # Price stability features - only if specified in config
+        if "price_stability" in watch_features:
+            returns = df_watch[price_col].pct_change()
+            
+            # Luxury market volatility
+            for window in [3, 5, 10]:
+                df_watch[f"luxury_vol_{window}"] = returns.rolling(
+                    window=window
+                ).std() * np.sqrt(252)
 
-        # Watch category features
-        sports_keywords = [
-            "speedmaster",
-            "submariner",
-            "daytona",
-            "gmt",
-            "diver",
-            "chrono",
-        ]
-        df_watch["is_sports_watch"] = int(any(kw in model for kw in sports_keywords))
-
-        dress_keywords = ["calatrava", "master", "patrimony", "royal_oak", "nautilus"]
-        df_watch["is_dress_watch"] = int(any(kw in model for kw in dress_keywords))
+            # Premium pricing indicators
+            rolling_30 = df_watch[price_col].rolling(window=30)
+            df_watch["price_premium_30d"] = (
+                (df_watch[price_col] - rolling_30.min()) / rolling_30.min()
+            ).replace([np.inf, -np.inf], np.nan)
 
         return df_watch
 
@@ -735,16 +810,24 @@ class WatchDataProcessor:
 
         # Save combined dataset
         if not self.config.output.save_individual and len(combined_data) > 0:
-            combined_file = output_path / "watch_data_processed.csv"
-            combined_data.to_csv(combined_file, index=False)
+            file_ext = self.config.output.file_format
+            combined_file = output_path / f"watch_data_processed.{file_ext}"
+            if file_ext == "csv":
+                combined_data.to_csv(combined_file, index=self.config.output.include_index)
+            elif file_ext == "parquet":
+                combined_data.to_parquet(combined_file, index=self.config.output.include_index)
             output_files.append(str(combined_file))
             logger.info(f"Saved combined dataset: {len(combined_data)} records")
 
         # Save individual files if requested
         if self.config.output.save_individual:
+            file_ext = self.config.output.file_format
             for watch_name, df in featured_data.items():
-                individual_file = output_path / f"{watch_name}_processed.csv"
-                df.to_csv(individual_file, index=True)
+                individual_file = output_path / f"{watch_name}_processed.{file_ext}"
+                if file_ext == "csv":
+                    df.to_csv(individual_file, index=self.config.output.include_index)
+                elif file_ext == "parquet":
+                    df.to_parquet(individual_file, index=self.config.output.include_index)
                 output_files.append(str(individual_file))
 
         # Save metadata summary
@@ -768,26 +851,10 @@ class WatchDataProcessor:
             # Parse the full watch_id to extract components
             metadata = self._parse_watch_metadata(full_watch_id)
             
-            # Extract numeric watch ID and clean model name
-            numeric_watch_id = metadata["model"]  # This contains the numeric ID
+            # Extract numeric watch ID and model name from metadata
+            numeric_watch_id = metadata["id"]    # This contains the numeric ID (e.g., "22095")
             brand = metadata["brand"]
-            
-            # Create clean model name by removing brand and numeric ID from the full name
-            model_name = full_watch_id
-            # Remove brand prefix
-            if model_name.startswith(brand.replace(" ", "_")):
-                model_name = model_name[len(brand.replace(" ", "_")):].lstrip("-_")
-            
-            # Remove numeric ID prefix
-            if model_name.startswith(numeric_watch_id + "-"):
-                model_name = model_name[len(numeric_watch_id) + 1:]
-            elif "-" + numeric_watch_id + "-" in model_name:
-                parts = model_name.split("-" + numeric_watch_id + "-", 1)
-                if len(parts) > 1:
-                    model_name = parts[1]
-            
-            # Clean up model name
-            model_name = model_name.replace("_", " ").strip()
+            model_name = metadata["model"]       # This contains the descriptive model name
 
             # Calculate date range more safely
             date_range_days = 0
@@ -885,20 +952,35 @@ class WatchDataProcessor:
             }
 
     def _add_watch_metadata(self, df: pd.DataFrame, watch_id: str) -> pd.DataFrame:
-        """Add watch metadata as columns to the DataFrame."""
+        """Add watch metadata as columns to the DataFrame and reorder columns."""
         df_meta = df.copy()
         
-        # Add watch identifier
-        df_meta["watch_id"] = watch_id
+        # Parse metadata first to get correct assignments
+        metadata = self._parse_watch_metadata(watch_id)
+        
+        # Add watch identifier (should be the numeric ID)
+        df_meta["watch_id"] = metadata["id"]  # This is the numeric ID (e.g., "22095")
         
         # Add date as column if it's currently the index
         if "date" not in df_meta.columns:
             df_meta["date"] = df_meta.index
         
-        # Parse metadata and add as features
-        metadata = self._parse_watch_metadata(watch_id)
+        # Add metadata as features
         df_meta["brand"] = metadata["brand"]
-        df_meta["model"] = metadata["model"]
+        df_meta["model"] = metadata["model"]  # This is the descriptive model name
+        
+        # Reorder columns: date, price(SGD), watch_id, brand, model, then everything else
+        price_col = self.config.watch.price_column
+        priority_cols = ["date", price_col, "watch_id", "brand", "model"]
+        
+        # Get remaining columns (exclude priority columns)
+        remaining_cols = [col for col in df_meta.columns if col not in priority_cols]
+        
+        # Create final column order
+        final_column_order = priority_cols + remaining_cols
+        
+        # Reorder the DataFrame columns
+        df_meta = df_meta[final_column_order]
         
         return df_meta
 
@@ -908,26 +990,10 @@ class WatchDataProcessor:
         price_col = self.config.watch.price_column
         metadata = self._parse_watch_metadata(watch_id)
         
-        # Extract numeric watch ID and clean model name
-        numeric_watch_id = metadata["model"]  # This contains the numeric ID
+        # Extract numeric watch ID and model name from metadata
+        numeric_watch_id = metadata["id"]    # This contains the numeric ID (e.g., "22095")
         brand = metadata["brand"]
-        
-        # Create clean model name by removing brand and numeric ID from the full name
-        model_name = watch_id
-        # Remove brand prefix
-        if model_name.startswith(brand.replace(" ", "_")):
-            model_name = model_name[len(brand.replace(" ", "_")):].lstrip("-_")
-        
-        # Remove numeric ID prefix
-        if model_name.startswith(numeric_watch_id + "-"):
-            model_name = model_name[len(numeric_watch_id) + 1:]
-        elif "-" + numeric_watch_id + "-" in model_name:
-            parts = model_name.split("-" + numeric_watch_id + "-", 1)
-            if len(parts) > 1:
-                model_name = parts[1]
-        
-        # Clean up model name
-        model_name = model_name.replace("_", " ").strip()
+        model_name = metadata["model"]       # This contains the descriptive model name
         
         # Calculate date range more safely
         date_range_days = 0
