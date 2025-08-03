@@ -66,6 +66,9 @@ class FeatureConfig:
     rolling_windows: List[int] = field(default_factory=lambda: [7, 14, 21, 30, 60, 90])
     rolling_stats: List[str] = field(default_factory=lambda: ["mean", "std", "min", "max", "median"])
     
+    # Price change periods (for momentum features)
+    price_change_periods: List[int] = field(default_factory=lambda: [1, 3, 7, 14, 21, 30])
+    
     # Technical indicators
     include_technical: bool = True
     technical_indicators: List[str] = field(default_factory=lambda: ["sma", "ema", "rsi", "bollinger"])
