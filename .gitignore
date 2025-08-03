@@ -1,6 +1,7 @@
 # ignore data and log files
 /data/
 /outputs/
+/logs/
 
 # draft/temporary scripts
 /scratch/
