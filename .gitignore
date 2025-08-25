@@ -3,6 +3,9 @@
 /outputs/
 /logs/
 
+# macOS system files
+.DS_Store
+
 # draft/temporary scripts
 /scratch/
 
