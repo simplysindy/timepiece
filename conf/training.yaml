@@ -1,0 +1,45 @@
+defaults:
+  - _self_
+
+# Data settings
+data:
+  path: "data/output/featured_data.csv"  # Single unified dataset
+  target_column: "target"
+
+# Training settings
+training:
+  horizons: [7, 14, 30]  # Can override with single value
+  models: ["lightgbm", "xgboost", "random_forest","linear","ridge","lstm"]
+  test_size: 0.2      # Last 20% of each watch's data
+  val_size: 0.1       # 10% before test set
+  random_state: 42
+  max_samples: null   # Set to limit data size
+
+# Model hyperparameters
+models:
+  lightgbm:
+    n_estimators: 100
+    learning_rate: 0.1
+    max_depth: -1
+    num_leaves: 31
+    early_stopping_rounds: 10
+  xgboost:
+    n_estimators: 100
+    learning_rate: 0.1
+    max_depth: 6
+    early_stopping_rounds: 10
+  random_forest:
+    n_estimators: 100
+    max_depth: null
+  linear:
+    fit_intercept: true
+  ridge:
+    alpha: 1.0
+  lasso:
+    alpha: 1.0
+
+# Output settings
+output:
+  base_dir: "data/output/models"
+  save_models: true
+  save_predictions: true
