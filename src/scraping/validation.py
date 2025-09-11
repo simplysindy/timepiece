@@ -9,6 +9,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -69,49 +70,40 @@ class WatchDataValidator:
 
                 row_count = len(rows) - 1  # Subtract 1 for header
 
-                # Check date ordering if we have enough rows
+                # Check global date ordering if we have enough rows
                 is_date_ascending = True
                 date_error = ""
 
                 if row_count >= 2:
                     try:
-                        # Assume first column is date
-                        first_date = rows[1][0]  # First data row
-                        last_date = rows[-1][0]  # Last data row
+                        # Assume first column is date across all rows
+                        date_strings = [r[0] for r in rows[1:]]  # exclude header
+                        dates = pd.to_datetime(date_strings, errors="coerce")
 
-                        # Try to parse dates in common formats
-                        date_formats = ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"]
-                        first_parsed = None
-                        last_parsed = None
-
-                        for fmt in date_formats:
-                            try:
-                                first_parsed = datetime.strptime(first_date, fmt)
-                                last_parsed = datetime.strptime(last_date, fmt)
-                                break
-                            except ValueError:
-                                continue
-
-                        if first_parsed and last_parsed:
-                            is_date_ascending = first_parsed <= last_parsed
+                        if dates.isnull().any():
+                            is_date_ascending = True  # don't double penalize; mark parsing issue below
+                            date_error = "Unparseable dates present"
+                        else:
+                            # Non-decreasing order qualifies as ascending for time series
+                            is_date_ascending = dates.is_monotonic_increasing
                             if not is_date_ascending:
-                                date_error = " (DESCENDING ORDER)"
-
+                                inversions = int(((dates.diff() < pd.Timedelta(0))).sum())
+                                date_error = f"Non-monotonic dates ({inversions} inversions)"
                     except Exception:
-                        # If date parsing fails, assume it's okay
+                        # If parsing fails unexpectedly, keep default (treated as OK here)
                         pass
 
                 # Combine validation checks
                 has_sufficient_rows = row_count >= self.min_rows
 
                 if not has_sufficient_rows and not is_date_ascending:
-                    error_msg = (
-                        f"Insufficient data: {row_count} < {self.min_rows}{date_error}"
-                    )
+                    suffix = f"; {date_error}" if date_error else ""
+                    error_msg = f"Insufficient data: {row_count} < {self.min_rows}{suffix}"
                 elif not has_sufficient_rows:
                     error_msg = f"Insufficient data: {row_count} < {self.min_rows}"
                 elif not is_date_ascending:
-                    error_msg = f"Date ordering issue{date_error}"
+                    # include details when available
+                    error_msg = f"Date ordering issue: {date_error or 'non-ascending'}"
                 else:
                     error_msg = ""
 

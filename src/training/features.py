@@ -41,9 +41,11 @@ def prepare_features(df: pd.DataFrame, target_column: str = 'target') -> Tuple[p
     # Define columns to exclude from features
     excluded_columns = {
         target_column,
-        'asset_id',  # Keep for grouping but not as feature
-        'brand',     # Use encoded version instead
-        'model',     # Use encoded version instead
+        'asset_id',   # Keep for grouping but not as feature
+        'brand',      # Use encoded version instead
+        'model',      # Use encoded version instead
+        'date',       # Do not use raw date strings as features
+        'timestamp',  # Keep time explicit but not as raw numeric feature
     }
     
     # Select feature columns

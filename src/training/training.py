@@ -189,70 +189,83 @@ def _combine_individual_files(cfg: DictConfig) -> pd.DataFrame:
 
 def create_temporal_splits(df: pd.DataFrame, cfg: DictConfig) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series]:
     """Create train/val/test splits using temporal split per watch."""
-    
-    logger.info("Creating temporal splits per watch...")
-    
-    # Prepare features and target
+    logger.info("Creating temporal splits per asset_id using timestamp...")
+
+    # Ensure we have an asset identifier
+    if 'asset_id' not in df.columns:
+        raise ValueError("Asset identifier column 'asset_id' required for temporal splits")
+
+    # Ensure we have a timestamp column (derive from 'date' if needed)
+    if 'timestamp' not in df.columns:
+        if 'date' in df.columns:
+            try:
+                df = df.copy()
+                df['timestamp'] = pd.to_datetime(df['date'], errors='coerce', utc=True)
+            except Exception as e:
+                raise ValueError(f"Failed to parse 'date' into 'timestamp': {e}")
+        else:
+            raise ValueError("No 'timestamp' or 'date' column found for temporal ordering")
+
+    # Prepare features and target (raw date/timestamp are excluded in features module)
     X, y = prepare_features(df, cfg.data.target_column)
-    
-    train_data = []
-    val_data = []
-    test_data = []
-    
-    # Process each watch individually
-    for asset_id in df['asset_id'].unique():
-        asset_mask = df['asset_id'] == asset_id
-        asset_X = X[asset_mask].copy()
-        asset_y = y[asset_mask].copy()
-        
+
+    train_data: list = []
+    val_data: list = []
+    test_data: list = []
+
+    # Process each asset individually with strict temporal order
+    for asset_id, grp in df[['asset_id', 'timestamp']].dropna().groupby('asset_id'):
+        order_idx = grp.sort_values('timestamp').index
+
+        asset_X = X.loc[order_idx]
+        asset_y = y.loc[order_idx]
+
         # Skip assets with insufficient data
-        if len(asset_X) < 20:  # Minimum samples needed
-            logger.warning(f"Skipping asset {asset_id}: only {len(asset_X)} samples")
-            continue
-        
-        # Sort by index (should be temporal)
-        asset_X = asset_X.sort_index()
-        asset_y = asset_y.sort_index()
-        
         n_samples = len(asset_X)
-        
-        # Calculate split points
+        if n_samples < 20:  # configurable minimum
+            logger.warning(f"Skipping asset {asset_id}: only {n_samples} samples")
+            continue
+
+        # Calculate split points (train | val | test by position)
         test_start = int(n_samples * (1 - cfg.training.test_size))
         val_start = int(n_samples * (1 - cfg.training.test_size - cfg.training.val_size))
-        
-        # Create splits for this asset
+
+        # Slice
         train_X = asset_X.iloc[:val_start]
         train_y = asset_y.iloc[:val_start]
-        
+
         val_X = asset_X.iloc[val_start:test_start]
         val_y = asset_y.iloc[val_start:test_start]
-        
+
         test_X = asset_X.iloc[test_start:]
         test_y = asset_y.iloc[test_start:]
-        
-        # Add to combined datasets if splits have data
+
+        # Collect non-empty partitions
         if len(train_X) > 0:
             train_data.append((train_X, train_y))
         if len(val_X) > 0:
             val_data.append((val_X, val_y))
         if len(test_X) > 0:
             test_data.append((test_X, test_y))
-    
+
+    if not train_data or not val_data or not test_data:
+        raise RuntimeError("Insufficient data to form train/val/test splits across assets")
+
     # Combine all assets
     X_train = pd.concat([data[0] for data in train_data], ignore_index=True)
     y_train = pd.concat([data[1] for data in train_data], ignore_index=True)
-    
+
     X_val = pd.concat([data[0] for data in val_data], ignore_index=True)
     y_val = pd.concat([data[1] for data in val_data], ignore_index=True)
-    
+
     X_test = pd.concat([data[0] for data in test_data], ignore_index=True)
     y_test = pd.concat([data[1] for data in test_data], ignore_index=True)
-    
-    logger.info(f"Temporal splits created:")
+
+    logger.info("Temporal splits created:")
     logger.info(f"  Train: {len(X_train)} samples")
-    logger.info(f"  Val:   {len(X_val)} samples") 
+    logger.info(f"  Val:   {len(X_val)} samples")
     logger.info(f"  Test:  {len(X_test)} samples")
-    
+
     return X_train, X_val, X_test, y_train, y_val, y_test
 
 
