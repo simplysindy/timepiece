@@ -43,8 +43,9 @@ class ProcessingConfig:
     min_data_points: int = 30
     interpolation_method: str = "linear"
     fill_limit: int = 5
-    
+
     # Outlier detection
+    remove_outliers: bool = True
     outlier_method: str = "iqr"
     outlier_threshold: float = 3.0
     handle_outliers: str = "interpolate"

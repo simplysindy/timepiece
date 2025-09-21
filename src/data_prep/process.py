@@ -262,7 +262,17 @@ class WatchDataProcessor:
     def _remove_outliers(self, df: pd.DataFrame, price_col: str) -> pd.DataFrame:
         """Remove outliers using the configured method."""
 
+        # Allow opting out via configuration (remove_outliers = False or method = none)
+        if not self.config.processing.remove_outliers:
+            return df
+
         method = self.config.processing.outlier_method
+        if not method:
+            return df
+        method = method.lower()
+
+        if method == "none":
+            return df
         threshold = self.config.processing.outlier_threshold
 
         if method == "iqr":

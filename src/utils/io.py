@@ -7,7 +7,8 @@ and scraping systems, eliminating code duplication.
 
 import json
 import logging
-import os
+import re
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -77,7 +78,25 @@ def write_csv_file(df: pd.DataFrame, file_path: Union[str, Path], **kwargs) -> N
         raise ValueError(f"Failed to write CSV {file_path}: {str(e)}")
 
 
-def read_json_file(file_path: Union[str, Path]) -> Dict[str, Any]:
+def read_csv_safely(
+    file_path: Union[str, Path], **kwargs
+) -> Optional[pd.DataFrame]:
+    """Read a CSV file and return None instead of raising on failure."""
+    file_path = Path(file_path)
+
+    try:
+        df = pd.read_csv(file_path, **kwargs)
+        logger.debug(f"Safely read CSV: {file_path} ({len(df)} rows)")
+        return df
+    except FileNotFoundError:
+        logger.warning(f"CSV file not found: {file_path}")
+        return None
+    except Exception as exc:
+        logger.error(f"Failed to read CSV {file_path}: {exc}")
+        return None
+
+
+def read_json_file(file_path: Union[str, Path]) -> Any:
     """
     Read a JSON file with error handling.
 
@@ -88,7 +107,7 @@ def read_json_file(file_path: Union[str, Path]) -> Dict[str, Any]:
 
     Returns:
     -------
-    Dict[str, Any]
+    Any
         Loaded JSON data
 
     Raises:
@@ -104,7 +123,7 @@ def read_json_file(file_path: Union[str, Path]) -> Dict[str, Any]:
         raise FileNotFoundError(f"File not found: {file_path}")
 
     try:
-        with open(file_path, "r") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         logger.debug(f"Successfully read JSON: {file_path}")
         return data
@@ -113,14 +132,14 @@ def read_json_file(file_path: Union[str, Path]) -> Dict[str, Any]:
 
 
 def write_json_file(
-    data: Dict[str, Any], file_path: Union[str, Path], indent: int = 2
+    data: Any, file_path: Union[str, Path], indent: int = 2
 ) -> None:
     """
     Write data to JSON file with error handling.
 
     Parameters:
     ----------
-    data : Dict[str, Any]
+    data : Any
         Data to write
     file_path : str or Path
         Output file path
@@ -133,11 +152,33 @@ def write_json_file(
     file_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        with open(file_path, "w") as f:
-            json.dump(data, f, indent=indent, default=str)
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=indent, default=str, ensure_ascii=False)
         logger.debug(f"Successfully wrote JSON: {file_path}")
     except Exception as e:
         raise ValueError(f"Failed to write JSON {file_path}: {str(e)}")
+
+
+def save_json(data: Any, file_path: Union[str, Path], indent: int = 2) -> bool:
+    """Save JSON data to disk while suppressing exceptions."""
+    try:
+        write_json_file(data, file_path, indent=indent)
+        return True
+    except Exception as exc:
+        logger.error(f"Failed to save JSON to {file_path}: {exc}")
+        return False
+
+
+def load_json(file_path: Union[str, Path]) -> Optional[Any]:
+    """Load JSON data, returning None instead of raising on error."""
+    try:
+        return read_json_file(file_path)
+    except FileNotFoundError:
+        logger.warning(f"JSON file not found: {file_path}")
+        return None
+    except ValueError as exc:
+        logger.error(f"Failed to load JSON from {file_path}: {exc}")
+        return None
 
 
 def list_files(
@@ -299,36 +340,40 @@ def read_jsonl_file(file_path: Union[str, Path]) -> List[Dict[str, Any]]:
     Returns:
     -------
     List[Dict[str, Any]]
-        List of JSON objects loaded from the file
-        
-    Raises:
-    ------
-    FileNotFoundError
-        If file doesn't exist
-    ValueError
-        If file cannot be parsed
+        List of JSON objects loaded from the file. Returns an empty list if
+        the file is missing or cannot be parsed.
     """
     file_path = Path(file_path)
     
     if not file_path.exists():
-        raise FileNotFoundError(f"File not found: {file_path}")
-    
+        logger.warning(f"JSONL file not found: {file_path}")
+        return []
+
+    data: List[Dict[str, Any]] = []
+
     try:
-        data = []
-        with open(file_path, 'r', encoding='utf-8') as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-                if line:  # Skip empty lines
-                    try:
-                        data.append(json.loads(line))
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Invalid JSON on line {line_num} in {file_path}: {e}")
-                        continue
-        
-        logger.debug(f"Successfully read JSONL: {file_path} ({len(data)} objects)")
-        return data
-    except Exception as e:
-        raise ValueError(f"Failed to read JSONL {file_path}: {str(e)}")
+        with open(file_path, "r", encoding="utf-8") as fh:
+            for line_num, raw_line in enumerate(fh, 1):
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                try:
+                    data.append(json.loads(line))
+                except json.JSONDecodeError as exc:
+                    logger.warning(
+                        "Invalid JSON on line %s in %s: %s",
+                        line_num,
+                        file_path,
+                        exc,
+                    )
+
+        logger.debug(f"Read %d objects from JSONL %s", len(data), file_path)
+    except Exception as exc:
+        logger.error(f"Failed to read JSONL {file_path}: {exc}")
+        return []
+
+    return data
 
 
 def write_jsonl_file(data: List[Dict[str, Any]], file_path: Union[str, Path]) -> None:
@@ -376,36 +421,62 @@ def read_mixed_json_file(file_path: Union[str, Path]) -> List[Dict[str, Any]]:
         List of JSON objects
     """
     file_path = Path(file_path)
-    
+
     if not file_path.exists():
+        logger.warning(f"File not found: {file_path}")
         return []
-    
+
+    # Try to interpret as JSONL first
+    jsonl_data = read_jsonl_file(file_path)
+    if jsonl_data:
+        logger.debug(
+            "Read %d records from JSONL-compatible file %s",
+            len(jsonl_data),
+            file_path,
+        )
+        return jsonl_data
+
     try:
-        # Try JSONL format first (one JSON object per line)
-        if file_path.suffix == '.jsonl' or file_path.name.endswith('.jsonl'):
-            return read_jsonl_file(file_path)
-        
-        # Try regular JSON format
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            
-        # Ensure we return a list
+        with open(file_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+
         if isinstance(data, list):
-            logger.debug(f"Successfully read JSON array: {file_path} ({len(data)} objects)")
+            logger.debug(
+                "Read %d records from JSON array %s",
+                len(data),
+                file_path,
+            )
             return data
-        else:
-            logger.debug(f"Successfully read JSON object: {file_path} (converted to list)")
+
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, list):
+                    logger.debug(
+                        "Read %d records from JSON dict key '%s' in %s",
+                        len(value),
+                        key,
+                        file_path,
+                    )
+                    return value
+
+            logger.debug(
+                "JSON object in %s converted to single-item list",
+                file_path,
+            )
             return [data]
-            
-    except json.JSONDecodeError:
-        # If regular JSON fails, try JSONL format
-        try:
-            return read_jsonl_file(file_path)
-        except Exception as e:
-            logger.error(f"Failed to read {file_path} as both JSON and JSONL: {e}")
-            return []
-    except Exception as e:
-        logger.error(f"Failed to read JSON file {file_path}: {e}")
+
+        logger.warning(
+            "Unexpected JSON structure in %s (type: %s)",
+            file_path,
+            type(data).__name__,
+        )
+        return []
+
+    except json.JSONDecodeError as exc:
+        logger.error(f"Failed to parse JSON from {file_path}: {exc}")
+        return []
+    except Exception as exc:
+        logger.error(f"Failed to read JSON file {file_path}: {exc}")
         return []
 
 
@@ -426,26 +497,22 @@ def load_existing_csv_data(file_path: Union[str, Path]) -> Optional[pd.DataFrame
         Loaded DataFrame with date column converted, or None if loading fails
     """
     file_path = Path(file_path)
-    
+
     if not file_path.exists():
         logger.debug(f"CSV file does not exist: {file_path}")
         return None
-    
+
     try:
         df = pd.read_csv(file_path)
-        
-        if len(df) > 0 and "date" in df.columns:
-            # Convert date column to datetime for proper comparison
-            df["date"] = pd.to_datetime(df["date"])
-            logger.debug(f"Successfully loaded existing CSV: {file_path} ({len(df)} rows)")
-            return df
-        else:
-            logger.warning(f"CSV file has no data or missing date column: {file_path}")
-            return None
-            
-    except Exception as e:
-        logger.warning(f"Error loading existing CSV data from {file_path}: {e}")
+    except Exception as exc:
+        logger.error(f"Failed to load CSV {file_path}: {exc}")
         return None
+
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    logger.debug(f"Loaded {len(df)} rows from {file_path}")
+    return df
 
 
 def safe_write_csv_with_backup(df: pd.DataFrame, file_path: Union[str, Path], **kwargs) -> bool:
@@ -469,7 +536,7 @@ def safe_write_csv_with_backup(df: pd.DataFrame, file_path: Union[str, Path], **
         True if write succeeded, False otherwise
     """
     file_path = Path(file_path)
-    backup_path = file_path.with_suffix(file_path.suffix + '.backup')
+    backup_path = file_path.with_suffix(f"{file_path.suffix}.bak")
     
     # Create parent directories
     file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -478,11 +545,11 @@ def safe_write_csv_with_backup(df: pd.DataFrame, file_path: Union[str, Path], **
     backup_created = False
     if file_path.exists():
         try:
-            backup_path.write_bytes(file_path.read_bytes())
+            shutil.copy2(file_path, backup_path)
             backup_created = True
             logger.debug(f"Created backup: {backup_path}")
-        except Exception as e:
-            logger.warning(f"Failed to create backup for {file_path}: {e}")
+        except Exception as exc:
+            logger.warning(f"Failed to create backup for {file_path}: {exc}")
     
     # Try to write the new file
     try:
@@ -495,91 +562,58 @@ def safe_write_csv_with_backup(df: pd.DataFrame, file_path: Union[str, Path], **
             
         return True
         
-    except Exception as e:
-        logger.error(f"Failed to write CSV {file_path}: {e}")
-        
+    except Exception as exc:
+        logger.error(f"Failed to write CSV {file_path}: {exc}")
+
         # Restore backup if write failed
         if backup_created and backup_path.exists():
             try:
-                file_path.write_bytes(backup_path.read_bytes())
-                backup_path.unlink()
+                shutil.move(backup_path, file_path)
                 logger.info(f"Restored backup for {file_path}")
             except Exception as restore_error:
                 logger.error(f"Failed to restore backup: {restore_error}")
-        
+
         return False
 
 
 def make_filename_safe(text: str, max_length: int = 200) -> str:
-    """
-    Make a text string safe for use as a filename.
-    
-    Removes or replaces characters that are invalid in filenames across
-    different operating systems.
-    
-    Parameters:
-    ----------
-    text : str
-        Input text to make filename-safe
-    max_length : int
-        Maximum length for the resulting filename
-        
-    Returns:
-    -------
-    str
-        Filename-safe string
-    """
+    """Normalize text so it is safe to use as a filename."""
     if not text:
         return "unnamed"
-    
-    # Replace invalid characters with underscores
-    invalid_chars = '<>:"/\\|?*'
-    safe_text = text
-    
-    for char in invalid_chars:
-        safe_text = safe_text.replace(char, '_')
-    
-    # Replace multiple spaces with single underscore
-    safe_text = ' '.join(safe_text.split())
-    safe_text = safe_text.replace(' ', '_')
-    
-    # Remove leading/trailing periods and spaces
-    safe_text = safe_text.strip('. ')
-    
-    # Truncate if too long
-    if len(safe_text) > max_length:
-        safe_text = safe_text[:max_length].rstrip('_')
-    
-    # Ensure we have something
-    if not safe_text:
-        safe_text = "unnamed"
-    
-    return safe_text
+
+    # Replace filesystem-invalid characters with underscores
+    safe = re.sub(r'[<>:"/\\|?*]', "_", text)
+
+    # Strip control characters that might not render on disk
+    safe = "".join(ch for ch in safe if ord(ch) >= 32)
+
+    # Collapse whitespace and convert to underscores
+    safe = re.sub(r"\s+", " ", safe).strip()
+    safe = safe.replace(" ", "_")
+
+    # Trim leading/trailing dots or underscores that can be problematic
+    safe = safe.strip("._ ")
+
+    if not safe:
+        return "unnamed"
+
+    if len(safe) > max_length:
+        safe = safe[:max_length].rstrip("._")
+
+    return safe or "unnamed"
 
 
-def ensure_output_directory(base_dir: str, *subdirs: str) -> Path:
-    """
-    Ensure output directory structure exists, creating nested directories as needed.
-    
-    Parameters:
-    ----------
-    base_dir : str
-        Base directory path
-    *subdirs : str
-        Additional subdirectory names to create
-        
-    Returns:
-    -------
-    Path
-        Path to the final directory
-    """
-    path = Path(base_dir)
-    for subdir in subdirs:
-        path = path / subdir
-    
+def ensure_output_directory(*path_parts: Union[str, Path]) -> Path:
+    """Ensure an output directory exists, creating nested directories as needed."""
+    if not path_parts:
+        raise ValueError("ensure_output_directory requires at least one path component")
+
+    path = Path(path_parts[0])
+    for part in path_parts[1:]:
+        path /= part
+
     path.mkdir(parents=True, exist_ok=True)
     logger.debug(f"Ensured directory exists: {path}")
-    
     return path
 
 
