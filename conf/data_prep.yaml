@@ -2,7 +2,7 @@
 
 # Data paths configuration
 data:
-  input_dir: data/final
+  input_dir: data/watches
   output_dir: data/processed
   max_files: null  # Process all files if null, or limit to specific number
   file_pattern: "*.csv"  # File pattern to match watch files
@@ -25,6 +25,7 @@ processing:
   fill_limit: 5                  # Maximum consecutive values to interpolate
 
   # Outlier detection
+  remove_outliers: false          # Toggle outlier filtering entirely
   outlier_method: iqr            # Method: iqr, zscore, isolation_forest
   outlier_threshold: 3.0         # Threshold for outlier detection
   handle_outliers: interpolate   # How to handle: remove, interpolate, cap

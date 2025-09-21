@@ -10,16 +10,16 @@ pipeline:
 
 # Discovery settings
 discovery:
-  target_count_per_brand: 20
+  target_count_per_brand: 5
   delay_range: [3, 8]
-  headless: false  # Changed to false to bypass Cloudflare
+  headless: true  # Changed to false to bypass Cloudflare
   output_file: "data/targets/watch_targets.jsonl"
 
 # Scraping settings
 scraping:
   delay_range: [10, 20]
   max_retries: 3
-  brand_delay: 60
+  brand_delay: 20
   output_dir: "data/watches"
   headless: true
 
@@ -33,15 +33,15 @@ validation:
 # Brand URLs for discovery
 brands:
   "Patek Philippe": "https://watchcharts.com/watches/brand/patek+philippe"
-  "Rolex": "https://watchcharts.com/watches/brand/rolex"
-  "Audemars Piguet": "https://watchcharts.com/watches/brand/audemars+piguet"
-  "Vacheron Constantin": "https://watchcharts.com/watches/brand/vacheron+constantin"
-  "Omega": "https://watchcharts.com/watches/brand/omega"
-  "Tudor": "https://watchcharts.com/watches/brand/tudor"
-  "Hublot": "https://watchcharts.com/watches/brand/hublot"
-  "Tissot": "https://watchcharts.com/watches/brand/tissot"
-  "Longines": "https://watchcharts.com/watches/brand/longines"
-  "Seiko": "https://watchcharts.com/watches/brand/seiko"
+  # "Rolex": "https://watchcharts.com/watches/brand/rolex"
+  # "Audemars Piguet": "https://watchcharts.com/watches/brand/audemars+piguet"
+  # "Vacheron Constantin": "https://watchcharts.com/watches/brand/vacheron+constantin"
+  # "Omega": "https://watchcharts.com/watches/brand/omega"
+  # "Tudor": "https://watchcharts.com/watches/brand/tudor"
+  # "Hublot": "https://watchcharts.com/watches/brand/hublot"
+  # "Tissot": "https://watchcharts.com/watches/brand/tissot"
+  # "Longines": "https://watchcharts.com/watches/brand/longines"
+  # "Seiko": "https://watchcharts.com/watches/brand/seiko"
 
 # Logging configuration
 logging:

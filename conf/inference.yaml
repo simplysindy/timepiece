@@ -1,0 +1,17 @@
+defaults:
+  - _self_
+
+# Data source used for forward predictions
+data:
+  path: "data/output/featured_data.csv"
+  target_column: "target"
+  asset_column: "watch_id"
+  timestamp_column: "date"
+
+# Inference configuration
+inference:
+  models: ["ridge"]
+  prediction_horizon_days: [1, 2, 3, 4, 5, 6, 7]
+  include_actuals: false
+  model_dir: "data/output/models"
+  output_path: "data/output/models/forward_predictions.csv"

@@ -5,11 +5,13 @@ defaults:
 data:
   path: "data/output/featured_data.csv"  # Single unified dataset
   target_column: "target"
+  price_column: "price(SGD)"
 
 # Training settings
 training:
-  horizons: [7, 14, 30]  # Can override with single value
-  models: ["lightgbm", "xgboost", "random_forest","linear","ridge","lstm"]
+  horizons: [1, 2, 3, 4, 5, 6, 7]
+  models: ["lightgbm", "xgboost", "random_forest", "linear", "ridge"]
+  # models: ["lightgbm", "xgboost", "random_forest","linear","ridge","lstm"]  # TODO: implement LSTM
   test_size: 0.2      # Last 20% of each watch's data
   val_size: 0.1       # 10% before test set
   random_state: 42

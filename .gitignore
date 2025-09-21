@@ -2,6 +2,7 @@
 /data/
 /outputs/
 /logs/
+/docs/
 
 # macOS system files
 .DS_Store
