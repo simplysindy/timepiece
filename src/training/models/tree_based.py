@@ -138,18 +138,23 @@ class XGBoostModel:
             logger.error("XGBoost not installed. Install with: pip install xgboost")
             raise
         
-        self.model = xgb.XGBRegressor(
-            n_estimators=self.n_estimators,
-            max_depth=self.max_depth,
-            learning_rate=self.learning_rate,
-            subsample=self.subsample,
-            colsample_bytree=self.colsample_bytree,
-            reg_alpha=self.reg_alpha,
-            reg_lambda=self.reg_lambda,
-            random_state=42,
-            n_jobs=-1,
-            verbosity=0
-        )
+        xgb_params: Dict[str, Any] = {
+            'n_estimators': self.n_estimators,
+            'max_depth': self.max_depth,
+            'learning_rate': self.learning_rate,
+            'subsample': self.subsample,
+            'colsample_bytree': self.colsample_bytree,
+            'reg_alpha': self.reg_alpha,
+            'reg_lambda': self.reg_lambda,
+            'random_state': 42,
+            'n_jobs': -1,
+            'verbosity': 0
+        }
+
+        if self.early_stopping_rounds and self.early_stopping_rounds > 0:
+            xgb_params['early_stopping_rounds'] = self.early_stopping_rounds
+
+        self.model = xgb.XGBRegressor(**xgb_params)
         
         X_array = X.values if hasattr(X, 'values') else X
         y_array = y.values if hasattr(y, 'values') else y
@@ -167,18 +172,23 @@ class XGBoostModel:
             logger.error("XGBoost not installed. Install with: pip install xgboost")
             raise
         
-        self.model = xgb.XGBRegressor(
-            n_estimators=self.n_estimators,
-            max_depth=self.max_depth,
-            learning_rate=self.learning_rate,
-            subsample=self.subsample,
-            colsample_bytree=self.colsample_bytree,
-            reg_alpha=self.reg_alpha,
-            reg_lambda=self.reg_lambda,
-            random_state=42,
-            n_jobs=-1,
-            verbosity=0
-        )
+        params: Dict[str, Any] = {
+            'n_estimators': self.n_estimators,
+            'max_depth': self.max_depth,
+            'learning_rate': self.learning_rate,
+            'subsample': self.subsample,
+            'colsample_bytree': self.colsample_bytree,
+            'reg_alpha': self.reg_alpha,
+            'reg_lambda': self.reg_lambda,
+            'random_state': 42,
+            'n_jobs': -1,
+            'verbosity': 0
+        }
+
+        if self.early_stopping_rounds and self.early_stopping_rounds > 0:
+            params['early_stopping_rounds'] = self.early_stopping_rounds
+
+        self.model = xgb.XGBRegressor(**params)
         
         X_train_array = X_train.values if hasattr(X_train, 'values') else X_train
         y_train_array = y_train.values if hasattr(y_train, 'values') else y_train
@@ -186,11 +196,10 @@ class XGBoostModel:
         y_val_array = y_val.values if hasattr(y_val, 'values') else y_val
         
         eval_set = [(X_train_array, y_train_array), (X_val_array, y_val_array)]
-        
+
         self.model.fit(
             X_train_array, y_train_array,
             eval_set=eval_set,
-            early_stopping_rounds=self.early_stopping_rounds,
             verbose=False
         )
         

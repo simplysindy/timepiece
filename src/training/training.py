@@ -38,44 +38,79 @@ def main(cfg: DictConfig) -> None:
     logger.info("📊 Loading data...")
     df = load_data(cfg)
     
-    # Create temporal splits
-    logger.info("🔄 Creating temporal train/val/test splits...")
-    X_train, X_val, X_test, y_train, y_val, y_test = create_temporal_splits(df, cfg)
-    
-    # Train models
-    logger.info("🎯 Training models...")
-    results = {}
-    
-    for model_name in cfg.training.models:
-        logger.info(f"Training {model_name}...")
+    price_column = cfg.data.get("price_column", "price(SGD)")
+    horizons: List[int] = list(cfg.training.get("horizons", [])) or [1]
+
+    overall_results: Dict[int, Dict[str, Dict[str, Any]]] = {}
+    successful_models: List[str] = []
+
+    for horizon in sorted(set(horizons)):
+        logger.info("🔄 Preparing temporal splits for %s-day horizon", horizon)
+
         try:
-            model = train_model(model_name, X_train, y_train, X_val, y_val, cfg)
-            metrics = evaluate_model(model, X_test, y_test)
-            
-            results[model_name] = {
-                'model': model,
-                'metrics': metrics,
-                'success': True
-            }
-            
-            logger.info(f"✅ {model_name} - RMSE: {metrics['rmse']:.4f}, MAE: {metrics['mae']:.4f}, R²: {metrics['r2']:.4f}")
-            
-        except Exception as e:
-            logger.error(f"❌ {model_name} failed: {str(e)}")
-            results[model_name] = {
-                'model': None,
-                'metrics': {},
-                'success': False,
-                'error': str(e)
-            }
-    
+            df_horizon, target_column = prepare_horizon_dataset(
+                df, horizon, price_column, cfg.data.target_column
+            )
+        except ValueError as exc:
+            logger.error("Skipping horizon %s: %s", horizon, exc)
+            continue
+
+        try:
+            X_train, X_val, X_test, y_train, y_val, y_test = create_temporal_splits(
+                df_horizon, cfg, target_column
+            )
+        except RuntimeError as exc:
+            logger.error("Skipping horizon %s due to splitting error: %s", horizon, exc)
+            continue
+
+        logger.info("🎯 Training models for %s-day horizon...", horizon)
+        horizon_results: Dict[str, Dict[str, Any]] = {}
+
+        for model_name in cfg.training.models:
+            logger.info("[%sd] Training %s...", horizon, model_name)
+            try:
+                model = train_model(model_name, X_train, y_train, X_val, y_val, cfg)
+                metrics = evaluate_model(model, X_test, y_test)
+
+                horizon_results[model_name] = {
+                    'model': model,
+                    'metrics': metrics,
+                    'success': True,
+                    'horizon': horizon,
+                }
+
+                successful_models.append(f"{model_name}@{horizon}d")
+                logger.info(
+                    "✅ [%sd] %s - RMSE: %.4f, MAE: %.4f, R²: %.4f",
+                    horizon,
+                    model_name,
+                    metrics['rmse'],
+                    metrics['mae'],
+                    metrics['r2'],
+                )
+
+            except Exception as exc:
+                logger.error("❌ [%sd] %s failed: %s", horizon, model_name, exc)
+                horizon_results[model_name] = {
+                    'model': None,
+                    'metrics': {},
+                    'success': False,
+                    'error': str(exc),
+                    'horizon': horizon,
+                }
+
+        overall_results[horizon] = horizon_results
+
     # Save results
-    if cfg.output.save_models:
-        save_results(results, cfg)
-    
-    # Summary
-    successful = [name for name, result in results.items() if result['success']]
-    logger.info(f"🎉 Training complete! {len(successful)}/{len(cfg.training.models)} models successful")
+    if cfg.output.save_models and overall_results:
+        save_results(overall_results, cfg)
+
+    total_attempts = len(cfg.training.models) * len(set(horizons))
+    logger.info(
+        "🎉 Training complete! %s/%s model runs successful",
+        len(successful_models),
+        total_attempts,
+    )
 
 
 def load_data(cfg: DictConfig) -> pd.DataFrame:
@@ -183,38 +218,89 @@ def _combine_individual_files(cfg: DictConfig) -> pd.DataFrame:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     unified_df.to_csv(output_path, index=False)
     logger.info(f"Created and saved unified dataset with {len(unified_df)} rows to {output_path}")
-    
+
     return unified_df
 
 
-def create_temporal_splits(df: pd.DataFrame, cfg: DictConfig) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series]:
+def prepare_horizon_dataset(
+    df: pd.DataFrame,
+    horizon: int,
+    price_column: str,
+    base_target_column: str,
+) -> Tuple[pd.DataFrame, str]:
+    """Create a copy of the dataset with horizon-specific target column."""
+
+    df_horizon = df.copy()
+
+    if horizon < 1:
+        raise ValueError("Horizon must be a positive integer")
+
+    target_column = (
+        base_target_column
+        if horizon == 1 and base_target_column in df_horizon.columns
+        else f"{base_target_column}_h{horizon}"
+    )
+
+    if target_column not in df_horizon.columns:
+        if price_column not in df_horizon.columns:
+            raise ValueError(
+                f"Price column '{price_column}' required to derive target for horizon {horizon}"
+            )
+
+        df_horizon[target_column] = df_horizon[price_column].shift(-horizon)
+
+    # Drop rows where the horizon target is not available yet
+    df_horizon = df_horizon.dropna(subset=[target_column])
+
+    return df_horizon, target_column
+
+
+def create_temporal_splits(
+    df: pd.DataFrame,
+    cfg: DictConfig,
+    target_column: str,
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series]:
     """Create train/val/test splits using temporal split per watch."""
+
     logger.info("Creating temporal splits per asset_id using timestamp...")
 
+    df_local = df.copy()
+
     # Ensure we have an asset identifier
-    if 'asset_id' not in df.columns:
+    if 'asset_id' not in df_local.columns:
         raise ValueError("Asset identifier column 'asset_id' required for temporal splits")
 
     # Ensure we have a timestamp column (derive from 'date' if needed)
-    if 'timestamp' not in df.columns:
-        if 'date' in df.columns:
+    if 'timestamp' not in df_local.columns:
+        if 'date' in df_local.columns:
             try:
-                df = df.copy()
-                df['timestamp'] = pd.to_datetime(df['date'], errors='coerce', utc=True)
-            except Exception as e:
-                raise ValueError(f"Failed to parse 'date' into 'timestamp': {e}")
+                df_local['timestamp'] = pd.to_datetime(
+                    df_local['date'], errors='coerce', utc=True
+                )
+            except Exception as exc:
+                raise ValueError(
+                    f"Failed to parse 'date' into 'timestamp': {exc}"
+                ) from exc
         else:
             raise ValueError("No 'timestamp' or 'date' column found for temporal ordering")
 
     # Prepare features and target (raw date/timestamp are excluded in features module)
-    X, y = prepare_features(df, cfg.data.target_column)
+    X, y = prepare_features(df_local, target_column)
+
+    valid_mask = y.notna()
+    if not valid_mask.any():
+        raise RuntimeError(f"Target column '{target_column}' has no valid rows")
+
+    X = X.loc[valid_mask]
+    y = y.loc[valid_mask]
+    df_local = df_local.loc[valid_mask]
 
     train_data: list = []
     val_data: list = []
     test_data: list = []
 
     # Process each asset individually with strict temporal order
-    for asset_id, grp in df[['asset_id', 'timestamp']].dropna().groupby('asset_id'):
+    for asset_id, grp in df_local[['asset_id', 'timestamp']].dropna().groupby('asset_id'):
         order_idx = grp.sort_values('timestamp').index
 
         asset_X = X.loc[order_idx]
@@ -229,6 +315,16 @@ def create_temporal_splits(df: pd.DataFrame, cfg: DictConfig) -> Tuple[pd.DataFr
         # Calculate split points (train | val | test by position)
         test_start = int(n_samples * (1 - cfg.training.test_size))
         val_start = int(n_samples * (1 - cfg.training.test_size - cfg.training.val_size))
+
+        # Guard against edge cases where splits collapse
+        if val_start <= 0 or test_start <= val_start:
+            logger.warning(
+                "Skipping asset %s: not enough samples after horizon filtering (val_start=%s, test_start=%s)",
+                asset_id,
+                val_start,
+                test_start,
+            )
+            continue
 
         # Slice
         train_X = asset_X.iloc[:val_start]
@@ -313,39 +409,56 @@ def evaluate_model(model: Any, X_test: pd.DataFrame, y_test: pd.Series) -> Dict[
     return metrics
 
 
-def save_results(results: Dict[str, Dict], cfg: DictConfig) -> None:
-    """Save training results and models."""
-    
+def save_results(results: Dict[int, Dict[str, Dict]], cfg: DictConfig) -> None:
+    """Save training results and models grouped by prediction horizon."""
+
     output_dir = Path(cfg.output.base_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Save models
-    for model_name, result in results.items():
-        if result['success'] and result['model'] is not None:
-            model_path = output_dir / f"{model_name}.pkl"
-            
-            try:
-                import pickle
-                with open(model_path, 'wb') as f:
-                    pickle.dump(result['model'], f)
-                logger.info(f"Saved {model_name} to {model_path}")
-            except Exception as e:
-                logger.warning(f"Failed to save {model_name}: {e}")
-    
-    # Save metrics summary
-    metrics_summary = {}
-    for model_name, result in results.items():
-        if result['success']:
-            metrics_summary[model_name] = result['metrics']
-        else:
-            metrics_summary[model_name] = {'error': result.get('error', 'Unknown error')}
-    
+
+    metrics_summary: Dict[str, Dict[str, Any]] = {}
+
+    for horizon, horizon_results in results.items():
+        horizon_key = f"horizon_{horizon}d"
+        metrics_summary[horizon_key] = {}
+
+        for model_name, result in horizon_results.items():
+            model_obj = result.get('model')
+            success = result.get('success', False)
+
+            if success and model_obj is not None:
+                model_filename = f"{model_name}__h{horizon}.pkl"
+                model_path = output_dir / model_filename
+
+                try:
+                    import pickle
+
+                    with open(model_path, 'wb') as handle:
+                        pickle.dump(model_obj, handle)
+                    logger.info(
+                        "Saved %s model for %s-day horizon to %s",
+                        model_name,
+                        horizon,
+                        model_path,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to save %s model for horizon %s: %s",
+                        model_name,
+                        horizon,
+                        exc,
+                    )
+
+            metrics_summary[horizon_key][model_name] = (
+                result['metrics'] if success else {'error': result.get('error', 'Unknown error')}
+            )
+
     import json
+
     metrics_path = output_dir / "metrics_summary.json"
-    with open(metrics_path, 'w') as f:
-        json.dump(metrics_summary, f, indent=2)
-    
-    logger.info(f"Saved metrics summary to {metrics_path}")
+    with open(metrics_path, 'w') as handle:
+        json.dump(metrics_summary, handle, indent=2)
+
+    logger.info("Saved metrics summary to %s", metrics_path)
 
 
 if __name__ == "__main__":

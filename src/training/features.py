@@ -47,6 +47,9 @@ def prepare_features(df: pd.DataFrame, target_column: str = 'target') -> Tuple[p
         'date',       # Do not use raw date strings as features
         'timestamp',  # Keep time explicit but not as raw numeric feature
     }
+
+    # Drop any future-looking targets from the feature set to avoid leakage
+    excluded_columns.update(col for col in df.columns if col.startswith('target'))
     
     # Select feature columns
     feature_columns = [col for col in df.columns if col not in excluded_columns]
