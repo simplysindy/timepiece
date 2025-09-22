@@ -1,195 +1,108 @@
-# AC-Watches
+# Luxury Watch Price Prediction System
 
-Luxury watch data scraping and analysis platform for collecting price data from WatchCharts.com across 10+ premium brands.
+A complete end-to-end machine learning pipeline for predicting luxury watch prices. This system scrapes real-time data from WatchCharts.com, engineers 80+ features, and trains multiple forecasting models to predict price movements across premium watch brands like Rolex, Patek Philippe, and Audemars Piguet.
 
-## 🚀 Watch Scraping Pipeline
+## Environment Setup
+1. Create a virtual environment and activate it:
+   ```
+   python -m venv .venv && source .venv/bin/activate
+   ```
+2. Install dependencies:
+   ```bash
+   pip install hydra-core selenium pandas beautifulsoup4 webdriver-manager scipy scikit-learn streamlit plotly
+   ```
 
-The core scraping pipeline is located in `src/scraping/` and provides a unified, configurable system for discovering, scraping, and validating watch price data.
+## 🔧 Quick Start
 
-### Quick Start
+Run the complete pipeline in sequence, or execute individual stages as needed.
 
+### 1. Scrape Watch Data
 ```bash
-# Install dependencies
-pip install hydra-core selenium pandas beautifulsoup4 webdriver-manager
-
-# Run the complete pipeline
-python -m src.scraping.scraping
-
-# Run specific pipeline steps
-python -m src.scraping.scraping pipeline.run_scraping=false pipeline.run_validation=false
+python -m src.scraper.scraper
 ```
+Discovers and scrapes price data from WatchCharts.com for 10+ luxury brands. Saves individual watch CSV files under `data/watches/`.
 
-## 📁 Project Structure
-
+### 2. Prepare ML Dataset
+```bash
+python -m src.data_prep.data_prep
 ```
-src/
-└── scraping/
-    ├── core/
-    │   ├── base_scraper.py      # WatchScraper class with all scraping logic
-    │   └── browser.py           # Browser management and driver creation
-    ├── discovery.py             # Watch URL discovery from brand pages
-    ├── validation.py            # CSV data validation and quality checks
-    └── scraping.py             # Main entry point with Hydra integration
+Processes raw data into ML-ready format with 80+ engineered features. Outputs to `data/processed/`.
 
-config/
-└── scraping.yaml               # Pipeline configuration
-
-data/
-├── watches/                    # Scraped watch price data (CSV files)
-└── watch_targets_100.json     # Discovered watch targets
+### 3. Train Prediction Models
+```bash
+python -m src.training.training
 ```
+Trains multiple algorithms on temporal splits. Models and predictions saved to `data/output/models/`.
+
+### 4. Generate Predictions
+```bash
+python -m src.inference.inference
+```
+Uses trained models to generate forward-looking price predictions.
+
+### 5. Interactive Dashboard
+```bash
+streamlit run src/inference/streamlit_app.py
+```
+Launch web interface to explore predictions, visualize trends, and analyze model performance.
 
 ## ⚙️ Configuration
 
-The pipeline is configured via `config/scraping.yaml` with full Hydra support for CLI overrides:
+All pipelines use Hydra for configuration management. Customize behavior via CLI overrides:
 
-### Pipeline Control
-```yaml
-pipeline:
-  run_discovery: true    # Discover watch URLs from brand pages
-  run_scraping: true     # Scrape price data from discovered watches  
-  run_validation: true   # Validate scraped CSV files
+```bash
+# Run scraping with custom settings
+python -m src.scraper.scraper scraping.headless=false discovery.target_count_per_brand=5
+
+# Train only specific models and horizons
+python -m src.training.training training.models=["lightgbm","xgboost"] training.horizons=[1,7]
+
+# Customize feature engineering
+python -m src.data_prep.data_prep features.include_technical=false processing.outlier_method=zscore
 ```
 
-### Discovery Settings
-```yaml
-discovery:
-  target_count_per_brand: 10     # Watches to discover per brand
-  delay_range: [3, 8]           # Random delay between requests (seconds)
-  headless: true                # Run browser in headless mode
-  output_file: "watch_targets_100.json"
-```
+Default configurations are in `conf/*.yaml` files.
 
-### Scraping Settings
-```yaml
-scraping:
-  delay_range: [10, 20]         # Random delay between scraping requests
-  max_retries: 3                # Max retry attempts per URL
-  brand_delay: 60               # Delay between different brands (seconds)
-  output_dir: "data/watches"    # Output directory for CSV files
-  headless: true                # Run browser in headless mode
-```
+## 📊 What You Get
 
-### Validation Settings
-```yaml
-validation:
-  data_dir: "data/watches"      # Directory containing CSV files to validate
-  min_rows: 100                 # Minimum rows required for valid CSV
-  move_invalid: false           # Move invalid files to kiv/ directory
-  log_dir: "logs"              # Directory for validation logs
-```
+- **Raw Data**: Individual watch price histories (`data/watches/*.csv`)
+- **Processed Dataset**: ML-ready features (`data/processed/*.csv`)
+- **Trained Models**: Serialized models for each algorithm (`data/output/models/`)
+- **Predictions**: Forward-looking price forecasts (`data/output/predictions.csv`)
+- **Interactive Dashboard**: Web interface for data exploration
 
 ## 🎯 Supported Brands
 
-The pipeline scrapes data from 10 luxury watch brands:
+**Premium Tier**: Patek Philippe, Rolex, Audemars Piguet, Vacheron Constantin
+**Mid Tier**: Omega, Tudor, Hublot
+**Entry Tier**: Tissot, Longines, Seiko
 
-- **Top Tier**: Patek Philippe, Rolex, Audemars Piguet, Vacheron Constantin
-- **Mid Tier**: Omega, Tudor, Hublot  
-- **Entry Level**: Tissot, Longines, Seiko
+## 🧠 Technical Highlights
 
-## 🔧 Command Line Usage
+- **Anti-Detection Web Scraping**: Bypasses Cloudflare protection with stealth browser automation
+- **Temporal Data Splits**: Proper train/validation/test splits respecting time series nature
+- **Rich Feature Engineering**: Price momentum, technical indicators, luxury tiers, seasonality
+- **Multi-Algorithm Support**: Tree-based, linear, and neural network models
+- **Production Architecture**: Modular design, comprehensive logging, error recovery
 
-### Basic Operations
-```bash
-# Run complete pipeline (discovery → scraping → validation)
-python -m src.scraping.scraping
+## 🚀 Use Cases
 
-# Run only discovery phase
-python -m src.scraping.scraping pipeline.run_scraping=false pipeline.run_validation=false
+- **Investment Research**: Analyze luxury watch market trends and price patterns
+- **Portfolio Management**: Predict price movements for watch collecting strategies
+- **Market Analysis**: Understand brand performance and seasonal effects
+- **Academic Research**: Study luxury goods pricing dynamics
+- **ML Learning**: Example of end-to-end time series prediction pipeline
 
-# Run only scraping phase  
-python -m src.scraping.scraping pipeline.run_discovery=false pipeline.run_validation=false
+## 📋 Project Structure
 
-# Run only validation phase
-python -m src.scraping.scraping pipeline.run_discovery=false pipeline.run_scraping=false
 ```
+src/
+├── scraper/        # Web scraping and data collection
+├── data_prep/      # Feature engineering and data preparation
+├── training/       # Model training and evaluation
+├── inference/      # Prediction generation and web dashboard
+└── utils/          # Shared utilities
 
-### Configuration Overrides
-```bash
-# Customize scraping delays
-python -m src.scraping.scraping scraping.delay_range=[5,15] scraping.brand_delay=30
-
-# Run in visible browser mode
-python -m src.scraping.scraping scraping.headless=false discovery.headless=false
-
-# Change validation requirements
-python -m src.scraping.scraping validation.min_rows=50 validation.move_invalid=true
-
-# Discover fewer watches per brand
-python -m src.scraping.scraping discovery.target_count_per_brand=5
+conf/               # Hydra configuration files
+data/               # Data storage (watches/, processed/, output/)
 ```
-
-## 📊 Output Files
-
-### CSV Data Files
-Individual watch price data saved as: `{Brand}-{Model}-{WatchID}.csv`
-```
-data/watches/
-├── Rolex-Submariner_Date-126610LN.csv
-├── Patek_Philippe-Nautilus-5711_1A_010.csv
-└── ...
-```
-
-### Discovery Output
-```json
-{
-  "brand": "Rolex",
-  "model_name": "126610LN - Submariner Date",
-  "url": "https://watchcharts.com/watch_model/126610LN-rolex-submariner-date/overview",
-  "source": "generated"
-}
-```
-
-## 🔍 Validation & Quality Control
-
-The validation pipeline checks:
-- **Minimum Data Points**: Ensures ≥100 rows of price data per watch
-- **Date Ordering**: Validates chronological data sequence
-- **File Integrity**: Checks for corrupted or empty CSV files
-- **Data Quality**: Identifies watches needing re-scraping
-
-### Validation Reports
-- Console output with color-coded status
-- Session logs saved to `logs/csv_validation_YYYYMMDD_HHMMSS/`
-- Invalid file summaries and recommendations
-
-## 🛠️ Development
-
-### Core Components
-
-**WatchScraper** (`src/scraping/core/base_scraper.py`)
-- Consolidated scraping logic with Cloudflare bypass
-- Chart.js price data extraction
-- Incremental data updates
-- Error handling and retry logic
-
-**BrowserManager** (`src/scraping/core/browser.py`)  
-- Chrome driver configuration with stealth capabilities
-- Anti-detection settings for bypassing protection
-- Separate drivers for discovery vs scraping tasks
-
-**WatchDiscovery** (`src/scraping/discovery.py`)
-- Brand page parsing and URL extraction
-- Watch metadata cleaning and standardization
-- Configurable discovery targets per brand
-
-**WatchDataValidator** (`src/scraping/validation.py`)
-- CSV quality assessment and reporting
-- File management with optional invalid file quarantine
-- Detailed validation metrics and summaries
-
-## 📈 Performance
-
-- **Stealth Browsing**: Anti-detection Chrome configuration
-- **Rate Limiting**: Configurable delays to respect site limits  
-- **Incremental Updates**: Only fetch new data points
-- **Brand Batching**: Organized processing with inter-brand delays
-- **Error Recovery**: Screenshot capture and retry mechanisms
-
-## 🚨 Error Handling
-
-- Cloudflare challenge detection and waiting
-- Network timeout and retry logic
-- Screenshot capture on scraping failures
-- Comprehensive logging at all pipeline stages
-- Graceful degradation when individual watches fail
