@@ -2,14 +2,22 @@
 
 A complete end-to-end machine learning pipeline for predicting luxury watch prices. This system scrapes real-time data from WatchCharts.com, engineers 80+ features, and trains multiple forecasting models to predict price movements across premium watch brands like Rolex, Patek Philippe, and Audemars Piguet.
 
-## Environment Setup
-1. Create a virtual environment and activate it:
-   ```
-   python -m venv .venv && source .venv/bin/activate
-   ```
-2. Install dependencies:
+## Installation
+1. Clone the repository and move into the project directory:
    ```bash
-   pip install hydra-core selenium pandas beautifulsoup4 webdriver-manager scipy scikit-learn streamlit plotly
+   git clone https://github.com/simplysindy/timepiece.git
+   cd timepiece
+   ```
+2. Create and activate a virtual environmentL
+   **conda**
+   ```bash
+   conda create --name timepiece python=3.11
+   conda activate timepiece
+   ```
+   
+3. Install the dependencies:
+   ```bash
+   pip install -r requirements.txt
    ```
 
 ## 🔧 Quick Start
