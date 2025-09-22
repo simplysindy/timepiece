@@ -1,5 +1,13 @@
 # ignore data and log files
-/data/
+/data/**
+!/data/
+!/data/**/
+!/data/**/*.csv
+!/data/*.csv
+!/data/**/*.json
+!/data/*.json
+!/data/**/*.jsonl
+!/data/*.jsonl
 /outputs/
 /logs/
 /docs/

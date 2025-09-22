@@ -1,0 +1,6 @@
+watch_id,brand,model,total_records,date_range_days,avg_price,price_volatility,luxury_tier,data_quality_score,features_generated
+Philippe_Aquanaut_5167_Stainless_Steel_5167A,Patek Philippe,22557,367,366,68735.78746594005,1544.9842054671676,high,1.0,76
+Philippe_Nautilus_5711_Stainless_Steel_5711_1A,Patek Philippe,22871,367,366,116564.31880108992,2067.7307984645336,ultra,1.0,76
+Philippe_Twenty_4_Automatic_Stainless_Steel_7300_1200A,Patek Philippe,22909,367,366,28890.811989100817,1002.6965692124979,high,1.0,76
+Philippe_Chronograph_5172_White_Gold_5172G,Patek Philippe,22640,367,366,72649.53950953679,2359.9898763195797,high,1.0,76
+Philippe_Nautilus_5712_Stainless_Steel_5712_1A,Patek Philippe,22873,367,366,126690.30517711172,2648.8303077978862,ultra,1.0,76
