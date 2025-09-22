@@ -284,7 +284,10 @@ class WatchDataProcessor:
             return df[(df[price_col] >= lower_bound) & (df[price_col] <= upper_bound)]
 
         elif method == "zscore":
-            z_scores = np.abs(stats.zscore(df[price_col]))
+            price_values = pd.to_numeric(
+                df[price_col], errors="coerce"
+            ).to_numpy(dtype=float)
+            z_scores = np.abs(stats.zscore(price_values))
             return df[z_scores < threshold]
 
         elif method == "isolation_forest":
@@ -412,10 +415,9 @@ class WatchDataProcessor:
 
         for tier_name, tier_range in self.config.watch.luxury_tiers.items():
             min_price, max_price = tier_range[0], tier_range[1]
-            # Handle None for upper bound (ultra luxury)
-            if max_price is None:
-                max_price = float("inf")
-            if min_price <= mean_price < max_price:
+            min_bound = float("-inf") if min_price is None else min_price
+            max_bound = float("inf") if max_price is None else max_price
+            if min_bound <= mean_price < max_bound:
                 return tier_name
         return "unknown"
 
@@ -522,43 +524,46 @@ class WatchDataProcessor:
 
         df_temp = df.copy()
         temporal_features = self.config.features.temporal_features
+        if not isinstance(df_temp.index, pd.DatetimeIndex):
+            df_temp.index = pd.to_datetime(df_temp.index, errors="coerce")
+        date_index: pd.DatetimeIndex = pd.DatetimeIndex(df_temp.index)
 
         # Basic temporal features - only add if specified in config
         if "day_of_week" in temporal_features:
-            df_temp["day_of_week"] = df_temp.index.dayofweek
+            df_temp["day_of_week"] = date_index.dayofweek
             # Cyclical encoding for day of week
             df_temp["day_of_week_sin"] = np.sin(2 * np.pi * df_temp["day_of_week"] / 7)
             df_temp["day_of_week_cos"] = np.cos(2 * np.pi * df_temp["day_of_week"] / 7)
 
         if "month" in temporal_features:
-            df_temp["month"] = df_temp.index.month
+            df_temp["month"] = date_index.month
             # Cyclical encoding for month
             df_temp["month_sin"] = np.sin(2 * np.pi * df_temp["month"] / 12)
             df_temp["month_cos"] = np.cos(2 * np.pi * df_temp["month"] / 12)
 
         if "quarter" in temporal_features:
-            df_temp["quarter"] = df_temp.index.quarter
+            df_temp["quarter"] = date_index.quarter
 
         # Optional temporal features
         if "day_of_month" in temporal_features:
-            df_temp["day_of_month"] = df_temp.index.day
+            df_temp["day_of_month"] = date_index.day
         if "year" in temporal_features:
-            df_temp["year"] = df_temp.index.year
+            df_temp["year"] = date_index.year
 
         # Boolean features - only add if specified in config
         if "is_weekend" in temporal_features:
             if "day_of_week" not in df_temp.columns:
-                df_temp["day_of_week"] = df_temp.index.dayofweek
-            df_temp["is_weekend"] = df_temp["day_of_week"] >= 5
+                df_temp["day_of_week"] = date_index.dayofweek
+            df_temp["is_weekend"] = df_temp["day_of_week"].ge(5)
 
         if "is_month_start" in temporal_features:
-            df_temp["is_month_start"] = df_temp.index.is_month_start
+            df_temp["is_month_start"] = date_index.is_month_start
         if "is_month_end" in temporal_features:
-            df_temp["is_month_end"] = df_temp.index.is_month_end
+            df_temp["is_month_end"] = date_index.is_month_end
         if "is_quarter_start" in temporal_features:
-            df_temp["is_quarter_start"] = df_temp.index.is_quarter_start
+            df_temp["is_quarter_start"] = date_index.is_quarter_start
         if "is_quarter_end" in temporal_features:
-            df_temp["is_quarter_end"] = df_temp.index.is_quarter_end
+            df_temp["is_quarter_end"] = date_index.is_quarter_end
 
         return df_temp
 
@@ -663,42 +668,41 @@ class WatchDataProcessor:
 
         df_tech = df.copy()
         indicators = self.config.features.technical_indicators
+        price_series = pd.to_numeric(df_tech[price_col], errors="coerce")
+        df_tech[price_col] = price_series
 
         # Simple Moving Averages - only if 'sma' is in config
         if "sma" in indicators:
             for window in [5, 10, 20, 50]:
-                df_tech[f"sma_{window}"] = (
-                    df_tech[price_col].rolling(window=window).mean()
-                )
-                df_tech[f"price_over_sma_{window}"] = (
-                    df_tech[price_col] / df_tech[f"sma_{window}"]
-                )
+                sma = price_series.rolling(window=window).mean()
+                df_tech[f"sma_{window}"] = sma
+                df_tech[f"price_over_sma_{window}"] = price_series / sma
 
         # Exponential Moving Averages - only if 'ema' is in config
         if "ema" in indicators:
             for span in [5, 10, 20]:
-                df_tech[f"ema_{span}"] = df_tech[price_col].ewm(span=span).mean()
-                df_tech[f"price_over_ema_{span}"] = (
-                    df_tech[price_col] / df_tech[f"ema_{span}"]
-                )
+                ema = price_series.ewm(span=span).mean()
+                df_tech[f"ema_{span}"] = ema
+                df_tech[f"price_over_ema_{span}"] = price_series / ema
 
         # Bollinger Bands - only if 'bollinger' is in config
         if "bollinger" in indicators:
             for window in [10, 20]:
-                sma = df_tech[price_col].rolling(window=window).mean()
-                std = df_tech[price_col].rolling(window=window).std()
+                sma = price_series.rolling(window=window).mean()
+                std = price_series.rolling(window=window).std()
                 df_tech[f"bb_upper_{window}"] = sma + (2 * std)
                 df_tech[f"bb_lower_{window}"] = sma - (2 * std)
                 df_tech[f"bb_position_{window}"] = (
-                    (df_tech[price_col] - df_tech[f"bb_lower_{window}"])
+                    (price_series - df_tech[f"bb_lower_{window}"])
                     / (df_tech[f"bb_upper_{window}"] - df_tech[f"bb_lower_{window}"])
                 ).replace([np.inf, -np.inf], np.nan)
 
         # RSI (Relative Strength Index) - only if 'rsi' is in config
         if "rsi" in indicators:
-            delta = df_tech[price_col].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            delta = price_series.diff()
+            gain = delta.where(delta.gt(0), 0.0).rolling(window=14).mean()
+            negative_delta = delta.where(delta.lt(0), 0.0)
+            loss = (-negative_delta).rolling(window=14).mean()
             rs = gain / loss
             df_tech["rsi"] = 100 - (100 / (1 + rs))
 
@@ -711,6 +715,9 @@ class WatchDataProcessor:
 
         df_watch = df.copy()
         watch_features = self.config.features.watch_features
+        if not isinstance(df_watch.index, pd.DatetimeIndex):
+            df_watch.index = pd.to_datetime(df_watch.index, errors="coerce")
+        watch_index: pd.DatetimeIndex = pd.DatetimeIndex(df_watch.index)
 
         # Parse watch metadata
         metadata = self._parse_watch_metadata(watch_name)
@@ -761,12 +768,16 @@ class WatchDataProcessor:
 
         # Seasonality features - only if specified in config
         if "seasonality" in watch_features:
-            df_watch["is_holiday_season"] = df_watch.index.month.isin([11, 12, 1])
-            df_watch["is_watch_fair_season"] = df_watch.index.month.isin([3, 4])
+            months = watch_index.month
+            month_series = pd.Series(months, index=df_watch.index)
+            df_watch["is_holiday_season"] = month_series.isin([11, 12, 1])
+            df_watch["is_watch_fair_season"] = month_series.isin([3, 4])
 
         # Price stability features - only if specified in config
         if "price_stability" in watch_features:
-            returns = df_watch[price_col].pct_change()
+            price_series = pd.to_numeric(df_watch[price_col], errors="coerce")
+            df_watch[price_col] = price_series
+            returns = price_series.pct_change()
 
             # Luxury market volatility
             for window in [3, 5, 10]:

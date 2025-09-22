@@ -11,7 +11,7 @@ import re
 import altair as alt
 import pandas as pd
 import streamlit as st
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 # Ensure project root is available on the Python path when launched via Streamlit.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +50,8 @@ def load_default_config() -> dict:
     """Load defaults from conf/inference.yaml if available."""
     if CONFIG_PATH.exists():
         cfg = OmegaConf.load(CONFIG_PATH)
+        if not isinstance(cfg, DictConfig):
+            raise TypeError("Expected inference config to be a DictConfig")
         data_cfg = cfg.get("data", {})
         inference_cfg = cfg.get("inference", {})
         return {
@@ -191,7 +193,7 @@ def prettify_asset_id(asset_id: str, brand_lookup: dict[str, str]) -> str:
 
 
 st.title("Luxury Watch Forecasting")
-st.caption("Minimal dashboard for exploring next-week price predictions across premium watches.")
+st.caption("Minimal dashboard for exploring next-week price predictions")
 
 defaults = load_default_config()
 
@@ -232,7 +234,7 @@ predictions_path = predictions_path.strip()
 if predictions_path:
     try:
         predictions = load_predictions_file(predictions_path)
-        predictions_source = f"Loaded predictions from {predictions_path}"
+        # predictions_source = f"Loaded predictions from {predictions_path}"
     except FileNotFoundError as exc:
         st.warning(f"Predictions file not found: {exc}")
     except Exception as exc:  # pragma: no cover - defensive UI handling
