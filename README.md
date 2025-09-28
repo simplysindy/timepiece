@@ -171,7 +171,7 @@ response = requests.post(
 
 ## 📝 License
 
-timepiece — end-to-end ML platform for luxury watch price forecasting
+timepiece — Luxury watch price prediction service for PP models, deployed on GCP with FastAPI
 Copyright (C) 2025 Sindy
 
 This program is free software: you can redistribute it and/or modify
