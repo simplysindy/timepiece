@@ -95,27 +95,34 @@ Additional notes:
 ```
 
 ### Phase 3: Streamlit Integration (Week 3-4)
-**Status:** ⏳ Not Started | 🔄 In Progress | ✅ Complete
+**Status:** 🔄 In Progress
 
 **Tasks:**
-- [ ] Add environment variable for Cloud Function URL in Streamlit app
-- [ ] Create toggle between local and cloud inference
-- [ ] Add developer API documentation section
+- [x] Add environment variable for Cloud Function URL in Streamlit app
+- [x] Create toggle between local and cloud inference
+- [x] Add developer API documentation section
 - [ ] Test end-to-end functionality with Cloud Functions
 - [ ] Deploy Streamlit app to Cloud Run (optional)
 - [ ] Create .proto file for gRPC (if implemented)
-- [ ] Update this checklist with completion notes
+- [x] Update this checklist with completion notes
 
 **Developer Notes - Phase 3:**
 ```
 Key Accomplishments:
-_This section will be populated by the developer_
+✅ Streamlit now reads `GCP_API_URL`/`WATCH_API_URL` (or sidebar input) to call the deployed prediction API.
+✅ Added a sidebar backend toggle with cached helpers for `/watches`, `/models`, and `/predict`, preserving the original local flow.
+✅ Inserted an "API for developers" expander plus a raw-response viewer to simplify debugging.
+✅ Documented round-trip validation commands in docs/cloud_round_trip.md and verified `streamlit_app.py` compiles.
 
 Next Phase Prep:
-_This section will be populated by the developer_
+- Exercise a full Streamlit → Cloud Run round trip and capture screenshots for docs.
+- Decide on the optional gRPC surface and `.proto` scaffold.
+- Package Streamlit for Cloud Run deployment once remote endpoints stabilize.
 
 Additional notes:
-_This section will be populated by the developer_
+- Cloud mode reuses local feature data for charting while live predictions come from the remote API.
+- Remote calls use `st.cache_data` and surface clear errors if the service is offline.
+- Local inference behaviour (Hydra defaults, on-disk models) remains unchanged when the toggle is set to "Local models".
 ```
 
 ### Phase 4: Production Ready (Week 4+)
