@@ -100,6 +100,8 @@ For ML pipeline development and model training:
 pip install -r requirements.txt
 
 # Run ML pipeline locally
+python -m src.scraper.scraper
+python -m src.data_prep.data_prep
 python -m src.training.training
 python -m src.inference.inference
 
@@ -134,18 +136,7 @@ See [`infra/monitoring/`](infra/monitoring/) for alert configurations.
 **CI/CD**: Cloud Build, Docker
 **Storage**: Cloud Storage, CSV data format
 
-## 📈 Performance Metrics
-
-- **API Latency**: ~1.5s average prediction time
-- **Throughput**: 100+ concurrent requests supported
-- **Availability**: 99.9% uptime SLA
-- **Cold Start**: <5s service initialization
-- **Model Size**: 42 trained models, 92MB total
-- **Data**: 180+ days of historical price data per watch
-
 ## 📄 API Documentation
-
-Interactive API docs available at: `https://your-deployment-url/docs`
 
 ### Example API Usage
 
