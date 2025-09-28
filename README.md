@@ -8,7 +8,7 @@ A complete end-to-end machine learning pipeline for predicting luxury watch pric
    git clone https://github.com/simplysindy/timepiece.git
    cd timepiece
    ```
-2. Create and activate a virtual environmentL
+2. Create and activate a virtual environment:
    **conda**
    ```bash
    conda create --name timepiece python=3.11
