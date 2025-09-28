@@ -115,6 +115,12 @@ conf/               # Hydra configuration files
 data/               # Data storage (watches/, processed/, output/)
 ```
 
+## 🌐 Cloud Deployment
+
+- Automated deployments are handled by `cloudbuild.yaml`. Create a Cloud Build trigger targeting the `main` branch to push both the Cloud Function and Cloud Run service.
+- Operations runbook and alert configuration live under `docs/PRODUCTION_OPERATIONS.md` and `infra/monitoring/`.
+- Set `ENVIRONMENT=production` when deploying to Google Cloud so that Cloud Logging and remote model loading are enabled.
+
 ## 📝 License
 
 timepiece — end-to-end ML platform for luxury watch price forecasting

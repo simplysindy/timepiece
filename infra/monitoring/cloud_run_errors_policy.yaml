@@ -1,0 +1,31 @@
+# Alert policy for Cloud Run 5xx responses.
+# Apply with:
+#   gcloud alpha monitoring policies create --policy-from-file=infra/monitoring/cloud_run_errors_policy.yaml
+# Replace PROJECT_ID and CHANNEL_ID_PLACEHOLDER with real values first.
+
+alertPolicy:
+  displayName: "5xx errors: Cloud Run API"
+  combiner: OR
+  enabled: true
+  conditions:
+    - displayName: "5xx rate exceeds 1 req/min"
+      conditionThreshold:
+        filter: |
+          resource.type="cloud_run_revision"
+          resource.labels.service_name="timepiece-api"
+          metric.type="run.googleapis.com/request_count"
+          metric.labels.response_code_class="5xx"
+        aggregations:
+          - alignmentPeriod: 60s
+            perSeriesAligner: ALIGN_DELTA
+        comparison: COMPARISON_GT
+        thresholdValue: 1
+        duration: 120s
+  notificationChannels:
+    - projects/PROJECT_ID/notificationChannels/CHANNEL_ID_PLACEHOLDER
+  documentation:
+    content: |
+      High 5xx rate indicates the FastAPI service is failing. Check Cloud Run
+      logs, verify Cloud Storage/model availability, and confirm the latest
+      deployment succeeded.
+    mimeType: text/markdown

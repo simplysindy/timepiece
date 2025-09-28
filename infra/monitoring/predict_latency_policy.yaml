@@ -1,0 +1,30 @@
+# Alert policy for the Cloud Function used by the watch forecasting API.
+# Apply with:
+#   gcloud alpha monitoring policies create --policy-from-file=infra/monitoring/predict_latency_policy.yaml
+# Replace PROJECT_ID and CHANNEL_ID_PLACEHOLDER with real values first.
+
+alertPolicy:
+  displayName: "High latency: predict Cloud Function"
+  combiner: OR
+  enabled: true
+  conditions:
+    - displayName: "Latency above 5s (95th percentile)"
+      conditionThreshold:
+        filter: |
+          resource.type="cloud_function"
+          resource.labels.function_name="predict"
+          metric.type="cloudfunctions.googleapis.com/function/execution_times"
+        aggregations:
+          - alignmentPeriod: 60s
+            perSeriesAligner: ALIGN_PERCENTILE_95
+        comparison: COMPARISON_GT
+        thresholdValue: 5000
+        duration: 60s
+  notificationChannels:
+    - projects/PROJECT_ID/notificationChannels/CHANNEL_ID_PLACEHOLDER
+  documentation:
+    content: |
+      Investigate Cloud Function logs and recent deployments. Confirm the
+      `timepiece-watch-models` bucket is reachable and the service loads models
+      quickly. Review downstream Cloud Run metrics if latency persists.
+    mimeType: text/markdown

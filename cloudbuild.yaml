@@ -1,0 +1,83 @@
+# Cloud Build pipeline for deploying the watch forecasting API to GCP services.
+#
+# This pipeline runs automated tests, deploys the Cloud Function endpoint used by
+# external integrations, and builds + deploys the FastAPI service to Cloud Run.
+# Substitutions can be overridden per-trigger to match non-production projects.
+
+timeout: 1800s
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _FUNCTION_NAME: predict
+  _FUNCTION_REGION: us-central1
+  _RUN_SERVICE: timepiece-api
+  _RUN_REGION: us-central1
+  _MODEL_BUCKET: timepiece-watch-models
+
+steps:
+  - id: run-tests
+    name: python:3.11
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        if [ -f requirements-api.txt ]; then
+          pip install -r requirements-api.txt
+        fi
+        pytest
+
+  - id: deploy-cloud-function
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    env:
+      - CLOUDSDK_PYTHON=python3
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud functions deploy ${_FUNCTION_NAME} \
+          --runtime=python311 \
+          --trigger-http \
+          --allow-unauthenticated \
+          --region=${_FUNCTION_REGION} \
+          --memory=2GB \
+          --timeout=300 \
+          --entry-point=predict \
+          --source=. \
+          --set-env-vars=ENVIRONMENT=production,MODEL_BUCKET=${_MODEL_BUCKET}
+
+  - id: build-cloud-run-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=gcr.io/$PROJECT_ID/${_RUN_SERVICE}:$COMMIT_SHA
+      - .
+
+  - id: push-cloud-run-image
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - gcr.io/$PROJECT_ID/${_RUN_SERVICE}:$COMMIT_SHA
+
+  - id: deploy-cloud-run
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    env:
+      - CLOUDSDK_PYTHON=python3
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        gcloud run deploy ${_RUN_SERVICE} \
+          --image=gcr.io/$PROJECT_ID/${_RUN_SERVICE}:$COMMIT_SHA \
+          --platform=managed \
+          --region=${_RUN_REGION} \
+          --allow-unauthenticated \
+          --set-env-vars=ENVIRONMENT=production,MODEL_BUCKET=${_MODEL_BUCKET}
+
+images:
+  - gcr.io/$PROJECT_ID/${_RUN_SERVICE}:$COMMIT_SHA
