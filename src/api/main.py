@@ -111,7 +111,10 @@ def get_service() -> ForecastService:
 # Request/Response models
 class PredictRequest(BaseModel):
     """Request model for prediction endpoint."""
-    watch_id: str = Field(..., description="The ID of the watch to predict for")
+    watch_id: str = Field(
+        default="Philippe_Nautilus_5711_Stainless_Steel_5711_1A",
+        description="The ID of the watch to predict for"
+    )
     horizon: int = Field(default=7, ge=1, le=30, description="Number of days ahead to predict")
     model_name: str = Field(default="lightgbm", description="Name of the model to use")
 
@@ -129,7 +132,13 @@ class PredictResponse(BaseModel):
 
 class BatchPredictRequest(BaseModel):
     """Request model for batch prediction endpoint."""
-    watch_ids: List[str] = Field(..., description="List of watch IDs to predict for")
+    watch_ids: List[str] = Field(
+        default=[
+            "Philippe_Nautilus_5711_Stainless_Steel_5711_1A",
+            "Philippe_Aquanaut_5167_Stainless_Steel_5167A"
+        ],
+        description="List of watch IDs to predict for"
+    )
     horizon: int = Field(default=7, ge=1, le=30, description="Number of days ahead to predict")
     model_name: str = Field(default="lightgbm", description="Name of the model to use")
 

@@ -55,7 +55,8 @@ def get_cloud_api_base_url() -> Optional[str]:
     if secret_url:
         return str(secret_url).rstrip("/")
 
-    return None
+    # Default to production API URL
+    return "https://timepiece-api-zmlm4rlafq-uc.a.run.app"
 
 
 def _request_cloud_json(api_base_url: str, method: str, path: str, **kwargs: Any) -> Dict[str, Any]:
