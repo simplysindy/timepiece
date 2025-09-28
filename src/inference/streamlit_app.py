@@ -110,6 +110,26 @@ def fetch_cloud_prediction(
     return payload
 
 
+@st.cache_data(show_spinner=True)
+def fetch_cloud_predictions_batch(
+    api_base_url: str,
+    watch_id: str,
+    model_name: str,
+    horizons: List[int],
+) -> List[Dict[str, Any]]:
+    """Request multiple predictions for different horizons from the cloud API."""
+    predictions = []
+    for horizon in horizons:
+        try:
+            prediction = fetch_cloud_prediction(api_base_url, watch_id, model_name, horizon)
+            prediction["horizon"] = horizon  # Ensure horizon is in the response
+            predictions.append(prediction)
+        except Exception as exc:
+            st.warning(f"Failed to fetch prediction for horizon {horizon}: {exc}")
+            continue
+    return predictions
+
+
 def load_feature_dataset_with_lookup(
     data_path: str,
     asset_column: str,
@@ -528,7 +548,6 @@ def run_cloud_ui(defaults: dict, api_base_url: str) -> None:
     """Render the cloud-backed inference experience backed by the deployed API."""
     asset_column = defaults.get("asset_column", "watch_id")
     timestamp_column = defaults.get("timestamp_column", "date")
-    horizon_options = sorted({int(h) for h in defaults.get("horizons", (7,))}) or [7]
 
     feature_data, asset_brand_lookup, feature_error = load_feature_dataset_with_lookup(
         defaults.get("data_path", "data/output/featured_data.csv"),
@@ -568,37 +587,34 @@ def run_cloud_ui(defaults: dict, api_base_url: str) -> None:
     selected_model_label = st.selectbox("Model", model_labels, index=default_index)
     selected_model = label_to_model[selected_model_label]
 
-    selected_horizon = st.selectbox(
-        "Prediction horizon (days)",
-        horizon_options,
-        index=len(horizon_options) - 1,
-    )
-
     if not selected_watch:
         st.info("Choose a watch to fetch predictions.")
         return
 
+    # Fetch predictions for all horizons D1-D7
+    horizons = list(range(1, 8))  # [1, 2, 3, 4, 5, 6, 7]
+
     try:
-        prediction = fetch_cloud_prediction(
+        predictions = fetch_cloud_predictions_batch(
             api_base_url=api_base_url,
             watch_id=selected_watch,
             model_name=selected_model,
-            horizon=int(selected_horizon),
+            horizons=horizons,
         )
-    except requests.exceptions.RequestException as exc:
-        st.error(f"Cloud prediction request failed: {exc}")
-        return
     except Exception as exc:  # pragma: no cover - defensive UI handling
-        st.error(f"Unexpected response from cloud API: {exc}")
+        st.error(f"Failed to fetch predictions: {exc}")
         return
 
-    prediction_value = prediction.get("prediction")
-    current_price = prediction.get("current_price")
-    horizon_days = int(prediction.get("horizon_days", selected_horizon))
-    feature_date_raw = prediction.get("feature_date")
-    prediction_date_raw = prediction.get("prediction_date")
-    feature_date = pd.to_datetime(feature_date_raw) if feature_date_raw else None
-    prediction_date = pd.to_datetime(prediction_date_raw) if prediction_date_raw else None
+    if not predictions:
+        st.error("No predictions could be retrieved.")
+        return
+
+    # Get current price from the first prediction or feature data
+    current_price = predictions[0].get("current_price")
+    feature_date = None
+    feature_date_raw = predictions[0].get("feature_date")
+    if feature_date_raw:
+        feature_date = pd.to_datetime(feature_date_raw)
 
     if current_price is None and not feature_data.empty and "price(SGD)" in feature_data.columns:
         latest_row = (
@@ -611,49 +627,46 @@ def run_cloud_ui(defaults: dict, api_base_url: str) -> None:
             if feature_date is None:
                 feature_date = latest_row[timestamp_column].iloc[0]
 
-    delta_value = None
-    delta_percent = None
-    if (
-        prediction_value is not None
-        and pd.notna(prediction_value)
-        and current_price is not None
-        and pd.notna(current_price)
-    ):
-        try:
-            delta_value = float(prediction_value) - float(current_price)
-            if float(current_price) != 0:
-                delta_percent = delta_value / float(current_price) * 100
-        except (TypeError, ValueError):
-            delta_value = None
-            delta_percent = None
-
-    left, middle, right = st.columns(3)
-
-    with left:
-        left.metric("Current price", format_currency(current_price))
-
-    with middle:
-        delta_label = None
-        if delta_value is not None:
-            delta_label = format_delta(delta_value)
-            if delta_percent is not None:
-                delta_label = f"{delta_label} ({delta_percent:+.2f}%)"
-        middle.metric(
-            "Predicted price",
-            format_currency(prediction_value),
-            delta=delta_label,
-            delta_color="inverse" if delta_value is not None and delta_value < 0 else "normal",
-        )
-
-    with right:
-        right.metric("Horizon", f"{horizon_days} days")
-        if prediction_date is not None:
-            right.caption(f"Prediction date: {prediction_date.date().isoformat()}")
-
+    # Display current price
+    st.metric("Current Price", format_currency(current_price))
     st.caption(f"Live inference via {api_base_url}")
 
+    # Display D1-D7 predictions in a table
     st.markdown("---")
-    st.subheader("Price history & forecast")
+    st.subheader("D1-D7 Price Forecasts")
+
+    forecast_data = []
+    for pred in predictions:
+        horizon = pred.get("horizon") or pred.get("horizon_days", 0)
+        prediction_value = pred.get("prediction")
+        prediction_date_raw = pred.get("prediction_date")
+        prediction_date = pd.to_datetime(prediction_date_raw) if prediction_date_raw else None
+
+        # Calculate delta from current price
+        delta_value = None
+        delta_percent = None
+        if (prediction_value is not None and pd.notna(prediction_value) and
+            current_price is not None and pd.notna(current_price)):
+            try:
+                delta_value = float(prediction_value) - float(current_price)
+                if float(current_price) != 0:
+                    delta_percent = delta_value / float(current_price) * 100
+            except (TypeError, ValueError):
+                pass
+
+        forecast_data.append({
+            "Horizon": f"D{horizon}",
+            "Prediction Date": prediction_date.date().isoformat() if prediction_date else "",
+            "Predicted Price": format_currency(prediction_value),
+            "Change": format_delta(delta_value) if delta_value is not None else "N/A",
+            "Change %": f"{delta_percent:+.2f}%" if delta_percent is not None else "N/A"
+        })
+
+    forecast_df = pd.DataFrame(forecast_data)
+    st.dataframe(forecast_df, hide_index=True, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Price history & D1-D7 forecast")
 
     if feature_data.empty:
         st.write("Feature dataset unavailable; cannot plot historical prices.")
@@ -666,13 +679,34 @@ def run_cloud_ui(defaults: dict, api_base_url: str) -> None:
         )
         history = history.sort_values("date").tail(180)
 
+        # Create forecast data for all horizons
         forecast_rows_data = []
+
+        # Add current price as starting point
         if feature_date is not None and current_price is not None:
-            forecast_rows_data.append({"date": feature_date, "price": current_price})
-        if prediction_date is not None and prediction_value is not None:
-            forecast_rows_data.append({"date": prediction_date, "price": prediction_value})
+            forecast_rows_data.append({
+                "date": feature_date,
+                "price": current_price,
+                "horizon": "Current"
+            })
+
+        # Add all D1-D7 predictions
+        for pred in predictions:
+            prediction_date_raw = pred.get("prediction_date")
+            prediction_value = pred.get("prediction")
+            horizon = pred.get("horizon") or pred.get("horizon_days", 0)
+
+            if prediction_date_raw and prediction_value is not None:
+                prediction_date = pd.to_datetime(prediction_date_raw)
+                forecast_rows_data.append({
+                    "date": prediction_date,
+                    "price": prediction_value,
+                    "horizon": f"D{horizon}"
+                })
+
         forecast_rows = pd.DataFrame(forecast_rows_data)
 
+        # Create base history chart
         history_chart = (
             alt.Chart(history)
             .mark_line(color="#1f77b4", strokeWidth=2)
@@ -682,55 +716,59 @@ def run_cloud_ui(defaults: dict, api_base_url: str) -> None:
                 tooltip=["date:T", alt.Tooltip("price:Q", format=",.2f")],
             )
         )
+
         combined_chart = history_chart
+
         if not forecast_rows.empty:
+            # Forecast line with dotted style
             forecast_chart = (
                 alt.Chart(forecast_rows)
-                .mark_line(color="#ff7f0e", strokeDash=[2, 2], strokeWidth=2)
+                .mark_line(color="#ff7f0e", strokeDash=[5, 5], strokeWidth=2)
                 .encode(
-                    x="date:T",
+                    x=alt.X("date:T"),
                     y=alt.Y("price:Q", scale=alt.Scale(zero=False)),
-                    tooltip=["date:T", alt.Tooltip("price:Q", format=",.2f")],
+                    tooltip=[
+                        "horizon:N",
+                        "date:T",
+                        alt.Tooltip("price:Q", format=",.2f")
+                    ],
                 )
             )
-            forecast_point = (
-                alt.Chart(forecast_rows.tail(1))
-                .mark_point(color="#ff7f0e", size=90)
-                .encode(
-                    x="date:T",
-                    y="price:Q",
-                    tooltip=["date:T", alt.Tooltip("price:Q", format=",.2f")],
-                )
-            )
-            combined_chart = combined_chart + forecast_chart + forecast_point
+
+            combined_chart = combined_chart + forecast_chart
 
         st.altair_chart(combined_chart, use_container_width=True)
 
     st.markdown("---")
-    st.subheader("Latest cloud prediction")
+    st.subheader("Detailed predictions")
 
-    response_df = pd.DataFrame(
-        [
-            {
-                "watch_id": selected_watch,
-                "model_name": selected_model,
-                "horizon_days": horizon_days,
-                "feature_date": feature_date.date().isoformat() if feature_date is not None else "",
-                "prediction_date": prediction_date.date().isoformat() if prediction_date is not None else "",
-                "current_price": current_price,
-                "prediction_price": prediction_value,
-            }
-        ]
-    )
+    # Create detailed response DataFrame
+    response_data = []
+    for pred in predictions:
+        horizon = pred.get("horizon") or pred.get("horizon_days", 0)
+        prediction_date_raw = pred.get("prediction_date")
+        prediction_date = pd.to_datetime(prediction_date_raw) if prediction_date_raw else None
 
-    if "watch_id" in response_df.columns:
-        response_df["watch_id"] = response_df["watch_id"].map(
-            lambda value: prettify_asset_id(value, asset_brand_lookup)
-        )
+        response_data.append({
+            "watch_id": prettify_asset_id(selected_watch, asset_brand_lookup),
+            "model_name": selected_model,
+            "horizon": f"D{horizon}",
+            "feature_date": feature_date.date().isoformat() if feature_date is not None else "",
+            "prediction_date": prediction_date.date().isoformat() if prediction_date is not None else "",
+            "current_price": current_price,
+            "prediction_price": pred.get("prediction"),
+        })
 
-    st.dataframe(response_df, hide_index=True)
-    with st.expander("Raw API response"):
-        st.json(prediction)
+    response_df = pd.DataFrame(response_data)
+    st.dataframe(response_df, hide_index=True, use_container_width=True)
+
+    with st.expander("Raw API responses"):
+        for i, pred in enumerate(predictions):
+            horizon = pred.get("horizon") or pred.get("horizon_days", 0)
+            st.write(f"**D{horizon} Prediction:**")
+            st.json(pred)
+            if i < len(predictions) - 1:
+                st.divider()
 
 
 def render_developer_docs(api_base_url: Optional[str]) -> None:
@@ -740,20 +778,62 @@ def render_developer_docs(api_base_url: Optional[str]) -> None:
         st.markdown(
             "Use the deployed REST API for programmatic access or integrations."
         )
+
+        # Show available resources
+        st.markdown("**Available Resources:**")
+        st.code(f"""# Get available watches
+curl {base_url}/watches
+
+# Get available models
+curl {base_url}/models
+
+# Check API health
+curl {base_url}/health""", language="bash")
+
+        st.markdown("**Single Prediction:**")
         st.code(
-            f"""# REST example
+            f"""# REST example with correct watch ID
 curl -X POST {base_url}/predict \\
   -H "Content-Type: application/json" \\
-  -d '{{"watch_id": "patek_nautilus_5711", "model_name": "lightgbm", "horizon": 7}}'
+  -d '{{"watch_id": "Philippe_Nautilus_5711_Stainless_Steel_5711_1A", "model_name": "lightgbm", "horizon": 7}}'
 """,
             language="bash",
         )
+
+        st.markdown("**Batch Predictions:**")
         st.code(
-            """import requests\n\nresponse = requests.post(\n    \"{base_url}/predict\",\n    json={{\n        \"watch_id\": \"patek_nautilus_5711\",\n        \"model_name\": \"lightgbm\",\n        \"horizon\": 7,\n    }},\n    timeout=30,\n)\nresponse.raise_for_status()\nprint(response.json())\n""".format(base_url=base_url),
+            f"""# Batch prediction example
+curl -X POST {base_url}/predict/batch \\
+  -H "Content-Type: application/json" \\
+  -d '{{"watch_ids": ["Philippe_Nautilus_5711_Stainless_Steel_5711_1A", "Philippe_Aquanaut_5167_Stainless_Steel_5167A"], "model_name": "lightgbm", "horizon": 7}}'
+""",
+            language="bash",
+        )
+
+        st.markdown("**Python Example:**")
+        st.code(
+            """import requests
+
+# Single prediction
+response = requests.post(
+    \"{base_url}/predict\",
+    json={{
+        \"watch_id\": \"Philippe_Nautilus_5711_Stainless_Steel_5711_1A\",
+        \"model_name\": \"lightgbm\",
+        \"horizon\": 7,
+    }},
+    timeout=30,
+)
+response.raise_for_status()
+print(response.json())
+
+# Available models: lightgbm, linear, random_forest, ridge, xgboost
+# Available watches: Use /watches endpoint to get current list
+""".format(base_url=base_url),
             language="python",
         )
         st.markdown(
-            "Set the `GCP_API_URL` environment variable before launching Streamlit to "
+            "💡 **Tip:** Set the `GCP_API_URL` environment variable before launching Streamlit to "
             "default to the cloud backend."
         )
 
@@ -776,28 +856,18 @@ with st.sidebar:
     cloud_api_input = raw_cloud_api_url.strip()
     has_cloud_api = bool(cloud_api_input)
 
-    backend_options = ["Local models"]
-    backend_index = 0
-    if has_cloud_api:
-        backend_options.append("Cloud API")
-        backend_index = 1
-
-    backend_choice = st.radio(
-        "Inference backend",
-        backend_options,
-        index=backend_index if backend_index < len(backend_options) else 0,
-        key="inference_backend",
-    )
-    use_cloud_backend = backend_choice == "Cloud API"
+    use_cloud_backend = has_cloud_api
 
     if not has_cloud_api:
-        st.info("Set `GCP_API_URL` (or enter the URL above) to enable cloud inference.")
+        st.warning("Cloud API URL required. Enter the URL above to enable inference.")
+    else:
+        st.success("Using Cloud API for inference")
 
 cloud_api_url = cloud_api_input.rstrip("/") if cloud_api_input else None
 
 if use_cloud_backend and cloud_api_url:
     run_cloud_ui(defaults, cloud_api_url)
 else:
-    run_local_ui(defaults)
+    st.error("Please provide a Cloud API URL to use the application.")
 
 render_developer_docs(cloud_api_url or env_api_url)
