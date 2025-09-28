@@ -4,24 +4,85 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from .forecast_service import ForecastService
 from .cloud_forecast_service import CloudForecastService
+from .forecast_service import ForecastService
+from .logging_config import configure_logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+configure_logging()
+logger = logging.getLogger("watch_forecast.api")
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Log every incoming request with latency and trace metadata."""
+
+    def __init__(self, app: FastAPI) -> None:
+        super().__init__(app)
+        self.environment = os.getenv("ENVIRONMENT", "local")
+        self.project_id = (
+            os.getenv("GOOGLE_CLOUD_PROJECT")
+            or os.getenv("GCLOUD_PROJECT")
+            or os.getenv("PROJECT_ID")
+        )
+
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.perf_counter()
+        trace_header = request.headers.get("X-Cloud-Trace-Context", "")
+        trace_id = trace_header.split("/")[0] if trace_header else ""
+
+        extra: Dict[str, Any] = {
+            "method": request.method,
+            "path": request.url.path,
+            "environment": self.environment,
+        }
+
+        if trace_id and self.project_id:
+            extra["trace"] = f"projects/{self.project_id}/traces/{trace_id}"
+
+        try:
+            response = await call_next(request)
+        except Exception:  # pragma: no cover - defensive logging
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            extra.update({
+                "status_code": 500,
+                "latency_ms": round(latency_ms, 2),
+            })
+            logger.exception("request.failed", extra=extra)
+            raise
+
+        latency_ms = (time.perf_counter() - start_time) * 1000
+        extra.update({
+            "status_code": response.status_code,
+            "latency_ms": round(latency_ms, 2),
+        })
+
+        if response.status_code >= 500:
+            logger.error("request.error", extra=extra)
+        elif response.status_code >= 400:
+            logger.warning("request.client_error", extra=extra)
+        else:
+            logger.info("request.completed", extra=extra)
+
+        return response
+
 
 # Initialize FastAPI app
+# TODO: Configure custom domain with Cloud Endpoints for production deployment
+# TODO: Set up Cloud Build trigger connection to repository for automated deployments
 app = FastAPI(
     title="Watch Price Forecasting API",
     description="API for predicting luxury watch prices using machine learning models",
-    version="1.0.0"
+    version="1.0.0",
 )
+app.add_middleware(RequestLoggingMiddleware)
 
 # Global service instance (will be initialized on first request)
 _service: Optional[ForecastService] = None
@@ -31,16 +92,15 @@ def get_service() -> ForecastService:
     """Get or create the forecast service instance."""
     global _service
     if _service is None:
-        # Check if running in cloud environment
         environment = os.getenv("ENVIRONMENT", "local")
         bucket_name = os.getenv("MODEL_BUCKET", "timepiece-watch-models")
 
         if environment == "production":
-            # Use cloud service for production
             _service = CloudForecastService(bucket_name=bucket_name)
-            logger.info("Initialized CloudForecastService with bucket: %s", bucket_name)
+            logger.info(
+                "Initialized CloudForecastService", extra={"bucket_name": bucket_name}
+            )
         else:
-            # Use local service for development
             model_dir = "data/output/models"
             data_path = "data/output/featured_data.csv"
             _service = ForecastService(model_dir=model_dir, data_path=data_path)
@@ -111,7 +171,7 @@ async def root():
         "message": "Watch Price Forecasting API",
         "version": "1.0.0",
         "docs": "/docs",
-        "health": "/health"
+        "health": "/health",
     }
 
 
@@ -122,9 +182,9 @@ async def health():
         service = get_service()
         health_data = service.health_check()
         return HealthResponse(**health_data)
-    except Exception as e:
-        logger.error("Health check failed: %s", str(e))
-        return HealthResponse(status="unhealthy", error=str(e))
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.exception("health.check_failed", extra={"error": str(exc)})
+        return HealthResponse(status="unhealthy", error=str(exc))
 
 
 @app.post("/predict", response_model=PredictResponse)
@@ -135,14 +195,37 @@ async def predict(request: PredictRequest):
         result = service.predict_single(
             watch_id=request.watch_id,
             horizon=request.horizon,
-            model_name=request.model_name
+            model_name=request.model_name,
+        )
+        logger.info(
+            "prediction.success",
+            extra={
+                "watch_id": request.watch_id,
+                "model_name": request.model_name,
+                "horizon": request.horizon,
+            },
         )
         return PredictResponse(**result)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error("Prediction failed for watch %s: %s", request.watch_id, str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except ValueError as exc:
+        logger.warning(
+            "prediction.validation_error",
+            extra={
+                "watch_id": request.watch_id,
+                "model_name": request.model_name,
+                "horizon": request.horizon,
+            },
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.exception(
+            "prediction.failure",
+            extra={
+                "watch_id": request.watch_id,
+                "model_name": request.model_name,
+                "horizon": request.horizon,
+            },
+        )
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @app.post("/predict/batch", response_model=BatchPredictResponse)
@@ -153,19 +236,35 @@ async def predict_batch(request: BatchPredictRequest):
         results = service.predict_multiple(
             watch_ids=request.watch_ids,
             horizon=request.horizon,
-            model_name=request.model_name
+            model_name=request.model_name,
         )
 
         predictions = [PredictResponse(**result) for result in results]
+        logger.info(
+            "prediction.batch_success",
+            extra={
+                "model_name": request.model_name,
+                "horizon": request.horizon,
+                "requested": len(request.watch_ids),
+                "returned": len(predictions),
+            },
+        )
 
         return BatchPredictResponse(
             predictions=predictions,
             total_requested=len(request.watch_ids),
-            successful_predictions=len(predictions)
+            successful_predictions=len(predictions),
         )
-    except Exception as e:
-        logger.error("Batch prediction failed: %s", str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.exception(
+            "prediction.batch_failure",
+            extra={
+                "model_name": request.model_name,
+                "horizon": request.horizon,
+                "requested": len(request.watch_ids),
+            },
+        )
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @app.get("/watches", response_model=WatchListResponse)
@@ -175,9 +274,9 @@ async def get_available_watches():
         service = get_service()
         watches = service.get_available_watches()
         return WatchListResponse(watches=watches, total_count=len(watches))
-    except Exception as e:
-        logger.error("Failed to get available watches: %s", str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.exception("watches.fetch_failed", extra={"error": str(exc)})
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
 @app.get("/models", response_model=ModelListResponse)
@@ -187,25 +286,45 @@ async def get_available_models():
         service = get_service()
         models = service.get_available_models()
         return ModelListResponse(models=models, total_count=len(models))
-    except Exception as e:
-        logger.error("Failed to get available models: %s", str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.exception("models.fetch_failed", extra={"error": str(exc)})
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
 
-# Error handlers
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Capture request validation errors with useful logging."""
+    logger.warning(
+        "request.validation_error",
+        extra={
+            "path": request.url.path,
+            "error_count": len(exc.errors()),
+        },
+    )
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+
 @app.exception_handler(404)
-async def not_found_handler(request, exc):
+async def not_found_handler(request: Request, exc: HTTPException):
     """Handle 404 errors."""
-    return {"detail": "Endpoint not found"}
+    logger.warning(
+        "request.not_found",
+        extra={"method": request.method, "path": request.url.path},
+    )
+    return JSONResponse(status_code=404, content={"detail": "Endpoint not found"})
 
 
 @app.exception_handler(500)
-async def internal_error_handler(request, exc):
-    """Handle 500 errors."""
-    logger.error("Internal server error: %s", str(exc))
-    return {"detail": "Internal server error"}
+async def internal_error_handler(request: Request, exc: Exception):
+    """Handle uncaught errors."""
+    logger.exception(
+        "request.unhandled_error",
+        extra={"method": request.method, "path": request.url.path},
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
