@@ -2,7 +2,7 @@
 
 A cloud-native luxury watch price prediction system deployed on Google Cloud Platform. This project demonstrates a complete ML pipeline transformation from local development to production-ready cloud services, featuring real-time price forecasting for premium watch brands like Patek Philippe through a REST API and interactive web interface.
 
-🌐 **Live Demo**: [Watch Forecasting Dashboard](https://timepiece-api-zmlm4rlafq-uc.a.run.app)
+🌐 **Live API**: [Interactive API Documentation](https://timepiece-api-zmlm4rlafq-uc.a.run.app/docs)
 
 ## 🚀 Cloud Architecture
 
@@ -176,9 +176,7 @@ response = requests.post(
 ## 🔗 Project Links
 
 - **Live API**: https://timepiece-api-zmlm4rlafq-uc.a.run.app
-- **Documentation**: [`docs/`](docs/) folder
-- **Deployment Guide**: [`docs/CLOUD_DEPLOYMENT_TUTORIAL.md`](docs/CLOUD_DEPLOYMENT_TUTORIAL.md)
-- **Production Runbook**: [`docs/PRODUCTION_OPERATIONS.md`](docs/PRODUCTION_OPERATIONS.md)
+- **Streamlit Deployment**: https://simplysindy-timepiece-srcinferencestreamlit-app-dgze5y.streamlit.app/
 
 ## 📝 License
 
