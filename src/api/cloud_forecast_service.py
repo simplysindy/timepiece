@@ -14,10 +14,14 @@ from google.cloud import storage
 from omegaconf import DictConfig
 
 from ..training.features import prepare_features
+from .numpy_compat import ensure_numpy_core_alias
 
 logger = logging.getLogger(__name__)
 
 ModelCache = Dict[Tuple[str, int], Any]
+
+# Align numpy import structure before loading pickled models saved with numpy>=2.0
+ensure_numpy_core_alias()
 
 
 class CloudForecastService:
