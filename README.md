@@ -149,10 +149,15 @@ See [`infra/monitoring/`](infra/monitoring/) for alert configurations.
 ## 🎨 Tech Stack
 
 **Backend**: FastAPI, Python 3.11, Uvicorn
+
 **ML**: LightGBM, XGBoost, Scikit-learn, Pandas
+
 **Frontend**: Streamlit, Altair (charts)
+
 **Cloud**: Google Cloud Platform
+
 **CI/CD**: Cloud Build, Docker
+
 **Storage**: Cloud Storage, CSV data format
 
 ## 📄 API Documentation
@@ -191,6 +196,7 @@ response = requests.post(
 ## 📝 License
 
 timepiece — Productionized ML pipeline on GCP, powering luxury watch price forecasting via REST API and Streamlit dashboard
+
 Copyright (C) 2025 Sindy
 
 This program is free software: you can redistribute it and/or modify
