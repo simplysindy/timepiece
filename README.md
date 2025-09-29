@@ -4,9 +4,28 @@ A cloud-native luxury watch price prediction system deployed on Google Cloud Pla
 
 🌐 **Live API**: [Interactive API Documentation](https://timepiece-api-zmlm4rlafq-uc.a.run.app/docs)
 
-## 🚀 Cloud Architecture
+## 🏗️ High-Level Architecture
 
-This project showcases a modern cloud-first ML deployment on Google Cloud Platform:
+```mermaid
+graph TB
+    User[👤 User] --> Streamlit[📊 Streamlit App<br/>Streamlit Cloud]
+    User --> API[🔗 Direct API Access]
+
+    Streamlit --> CloudRun[☁️ Cloud Run Service<br/>FastAPI Application]
+    API --> CloudRun
+
+    CloudRun --> CloudStorage[🗄️ Cloud Storage<br/>ML Models & Data]
+    CloudRun --> CloudLogging[📋 Cloud Logging<br/>Structured Logs]
+
+    CloudBuild[🔄 Cloud Build<br/>CI/CD Pipeline] --> CloudRun
+    CloudBuild --> CloudFunction[⚡ Cloud Function<br/>Serverless Endpoint]
+
+    CloudMonitoring[📈 Cloud Monitoring<br/>Alerts & Metrics] --> CloudRun
+
+    GitHub[📁 GitHub Repository] --> CloudBuild
+```
+
+This project showcases a modern cloud-first ML deployment on Google Cloud Platform with:
 
 - **🔮 REST API**: Cloud Run service providing real-time price predictions
 - **⚡ Serverless Functions**: Cloud Functions for external integrations
