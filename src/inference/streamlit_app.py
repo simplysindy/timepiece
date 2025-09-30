@@ -632,6 +632,40 @@ def run_cloud_ui(defaults: dict, api_base_url: str) -> None:
     st.metric("Current Price", format_currency(current_price))
     st.caption(f"Live inference via {api_base_url}")
 
+    # Display D1-D7 predictions in a table
+    st.markdown("---")
+    st.subheader("D1-D7 Price Forecasts")
+
+    forecast_data = []
+    for pred in predictions:
+        horizon = pred.get("horizon") or pred.get("horizon_days", 0)
+        prediction_value = pred.get("prediction")
+        prediction_date_raw = pred.get("prediction_date")
+        prediction_date = pd.to_datetime(prediction_date_raw) if prediction_date_raw else None
+
+        # Calculate delta from current price
+        delta_value = None
+        delta_percent = None
+        if (prediction_value is not None and pd.notna(prediction_value) and
+            current_price is not None and pd.notna(current_price)):
+            try:
+                delta_value = float(prediction_value) - float(current_price)
+                if float(current_price) != 0:
+                    delta_percent = delta_value / float(current_price) * 100
+            except (TypeError, ValueError):
+                pass
+
+        forecast_data.append({
+            "Horizon": f"D{horizon}",
+            "Prediction Date": prediction_date.date().isoformat() if prediction_date else "",
+            "Predicted Price": format_currency(prediction_value),
+            "Change": format_delta(delta_value) if delta_value is not None else "N/A",
+            "Change %": f"{delta_percent:+.2f}%" if delta_percent is not None else "N/A"
+        })
+
+    forecast_df = pd.DataFrame(forecast_data)
+    st.dataframe(forecast_df, hide_index=True, use_container_width=True)
+
     st.markdown("---")
     st.subheader("Price history & D1-D7 forecast")
 
