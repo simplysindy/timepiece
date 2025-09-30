@@ -1,6 +1,6 @@
 # Watch Price Forecasting API
 
-A cloud-native luxury watch price prediction system deployed on Google Cloud Platform. This project demonstrates a complete ML pipeline transformation from local development to production-ready cloud services, featuring real-time price forecasting for premium watch brands like Patek Philippe through a REST API and interactive web interface.
+A cloud-native luxury watch price prediction system deployed on Google Cloud Platform. This project demonstrates a complete ML pipeline and cloud deployment, featuring real-time price forecasting for premium watch brands like Patek Philippe through a REST API and interactive web interface.
 
 🌐 **Live API**: [Interactive API Documentation](https://timepiece-api-zmlm4rlafq-uc.a.run.app/docs)
 
@@ -107,12 +107,9 @@ For detailed deployment instructions, see [`docs/CLOUD_DEPLOYMENT_TUTORIAL.md`](
 - Patek Philippe Chronograph 5172 White Gold
 - Patek Philippe Twenty-4 Automatic Stainless Steel
 
-**Price Range**: S$68,000 - S$73,000+ (SGD)
-**Update Frequency**: Real-time via API calls
+## 🔧 ML Pipeline
 
-## 🔧 Local Development
-
-For ML pipeline development and model training:
+For ML pipeline and model training:
 
 ```bash
 # Install dependencies
